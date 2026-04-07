@@ -127,6 +127,28 @@ pub fn bias_forces(
     rnea(model, q, qd, &qdd, gravity, ws)
 }
 
+pub fn gravity_torques(
+    model: &Model,
+    q: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    let qd = vec![0.0; n];
+    let qdd = vec![0.0; n];
+    rnea(model, q, &qd, &qdd, gravity, ws)
+}
+
+pub fn coriolis_torques(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let qdd = vec![0.0; model.nv()];
+    rnea(model, q, qd, &qdd, Vec3::zero(), ws)
+}
+
 pub fn crba(model: &Model, q: &[f64], ws: &mut Workspace) -> Result<Vec<Vec<f64>>> {
     let n = model.nv();
     model.check_state_dims(q, &vec![0.0; n], None)?;
@@ -458,6 +480,120 @@ pub fn aba_batch(
             ws,
         )?;
         qdd_out[b..b + n].copy_from_slice(&qdd);
+    }
+    Ok(())
+}
+
+pub fn bias_forces_batch(
+    model: &Model,
+    q_batch: &[f64],
+    qd_batch: &[f64],
+    batch_size: usize,
+    gravity: Vec3,
+    ws: &mut Workspace,
+    bias_out: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let expected = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: q_batch.len(),
+        });
+    }
+    if qd_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: qd_batch.len(),
+        });
+    }
+    if bias_out.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: bias_out.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let b = step * n;
+        let bias = bias_forces(model, &q_batch[b..b + n], &qd_batch[b..b + n], gravity, ws)?;
+        bias_out[b..b + n].copy_from_slice(&bias);
+    }
+    Ok(())
+}
+
+pub fn gravity_torques_batch(
+    model: &Model,
+    q_batch: &[f64],
+    batch_size: usize,
+    gravity: Vec3,
+    ws: &mut Workspace,
+    g_out: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let expected = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: q_batch.len(),
+        });
+    }
+    if g_out.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: g_out.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let b = step * n;
+        let g = gravity_torques(model, &q_batch[b..b + n], gravity, ws)?;
+        g_out[b..b + n].copy_from_slice(&g);
+    }
+    Ok(())
+}
+
+pub fn crba_batch(
+    model: &Model,
+    q_batch: &[f64],
+    batch_size: usize,
+    ws: &mut Workspace,
+    mass_out_row_major: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let expected_q = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    let expected_m = batch_size
+        .checked_mul(n)
+        .and_then(|x| x.checked_mul(n))
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected_q {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: expected_q,
+            got: q_batch.len(),
+        });
+    }
+    if mass_out_row_major.len() != expected_m {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: expected_m,
+            got: mass_out_row_major.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let qb = step * n;
+        let mb = step * n * n;
+        let mass = crba(model, &q_batch[qb..qb + n], ws)?;
+        for r in 0..n {
+            for c in 0..n {
+                mass_out_row_major[mb + r * n + c] = mass[r][c];
+            }
+        }
     }
     Ok(())
 }

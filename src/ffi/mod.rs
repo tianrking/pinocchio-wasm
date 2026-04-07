@@ -364,6 +364,57 @@ pub extern "C" fn pino_aba(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_gravity_torques(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    gravity_xyz: *const f64,
+    g_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let g_out = unsafe { as_mut_slice(g_out, n)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out = algo::gravity_torques(model_ref, q, Vec3::new(g[0], g[1], g[2]), ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        g_out.copy_from_slice(&out);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_coriolis_torques(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    c_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let c_out = unsafe { as_mut_slice(c_out, n)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out =
+            algo::coriolis_torques(model_ref, q, qd, ws_ref).map_err(|_| Status::AlgoFailed)?;
+        c_out.copy_from_slice(&out);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_rnea_batch(
     model: *const ModelHandle,
     ws: *mut WorkspaceHandle,
@@ -401,6 +452,105 @@ pub extern "C" fn pino_rnea_batch(
             tau_out,
         )
         .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_bias_forces_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_batch: *const f64,
+    batch_size: usize,
+    gravity_xyz: *const f64,
+    bias_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_batch = unsafe { as_slice(qd_batch, total)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let bias_out = unsafe { as_mut_slice(bias_out, total)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::bias_forces_batch(
+            model_ref,
+            q_batch,
+            qd_batch,
+            batch_size,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            bias_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_gravity_torques_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    batch_size: usize,
+    gravity_xyz: *const f64,
+    g_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let g_out = unsafe { as_mut_slice(g_out, total)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::gravity_torques_batch(
+            model_ref,
+            q_batch,
+            batch_size,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            g_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_crba_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    batch_size: usize,
+    mass_out_row_major: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_m = batch_size
+            .checked_mul(n)
+            .and_then(|x| x.checked_mul(n))
+            .ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
+        let mass_out = unsafe { as_mut_slice(mass_out_row_major, total_m)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::crba_batch(model_ref, q_batch, batch_size, ws_ref, mass_out)
+            .map_err(|_| Status::AlgoFailed)?;
         Ok(())
     }) as i32
 }
