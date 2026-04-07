@@ -1,7 +1,7 @@
 use pinocchio_wasm::ffi::{
-    pino_aba_batch, pino_model_create_from_json, pino_model_create_from_sdf,
-    pino_model_create_from_urdf, pino_model_free, pino_model_nq, pino_rnea_batch,
-    pino_workspace_free, pino_workspace_new,
+    pino_aba_batch, pino_model_create_from_json, pino_model_create_from_mjcf,
+    pino_model_create_from_sdf, pino_model_create_from_urdf, pino_model_free, pino_model_nq,
+    pino_rnea_batch, pino_rollout_aba_euler, pino_workspace_free, pino_workspace_new,
 };
 
 #[test]
@@ -66,6 +66,22 @@ fn ffi_create_model_from_json_and_urdf() {
     assert!(!m_sdf.is_null());
     assert_eq!(pino_model_nq(m_sdf), 1);
     pino_model_free(m_sdf);
+
+    let mjcf = r#"
+    <mujoco model="r">
+      <worldbody>
+        <body name="base">
+          <body name="l1">
+            <joint name="j1" type="hinge" axis="0 0 1"/>
+          </body>
+        </body>
+      </worldbody>
+    </mujoco>
+    "#;
+    let m_mjcf = pino_model_create_from_mjcf(mjcf.as_ptr(), mjcf.len());
+    assert!(!m_mjcf.is_null());
+    assert_eq!(pino_model_nq(m_mjcf), 1);
+    pino_model_free(m_mjcf);
 }
 
 #[test]
@@ -144,6 +160,67 @@ fn ffi_batch_rnea_aba_smoke() {
 
     assert!(tau_out.iter().all(|x| x.is_finite()));
     assert!(qdd_out.iter().all(|x| x.is_finite()));
+
+    pino_workspace_free(ws);
+    pino_model_free(model);
+}
+
+#[test]
+fn ffi_rollout_smoke() {
+    let json = r#"
+    {
+      "links": [
+        {
+          "name": "base",
+          "parent": null,
+          "mass": 0.1,
+          "com": [0.0, 0.0, 0.0],
+          "inertia": [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]],
+          "joint": null
+        },
+        {
+          "name": "link1",
+          "parent": 0,
+          "mass": 1.0,
+          "com": [0.5, 0.0, 0.0],
+          "inertia": [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]],
+          "joint": {"axis": [0.0,0.0,1.0], "origin": [0.0,0.0,0.0]}
+        }
+      ]
+    }
+    "#;
+
+    let model = pino_model_create_from_json(json.as_ptr(), json.len());
+    assert!(!model.is_null());
+    let ws = pino_workspace_new(model);
+    assert!(!ws.is_null());
+
+    let nq = pino_model_nq(model);
+    let steps = 4usize;
+    let total = nq * steps;
+
+    let q0 = [0.0];
+    let qd0 = [0.0];
+    let tau = vec![0.0; total];
+    let g = [0.0, 0.0, 0.0];
+    let mut q_out = vec![0.0; total];
+    let mut qd_out = vec![0.0; total];
+
+    let s = pino_rollout_aba_euler(
+        model,
+        ws,
+        q0.as_ptr(),
+        qd0.as_ptr(),
+        tau.as_ptr(),
+        steps,
+        0.01,
+        g.as_ptr(),
+        q_out.as_mut_ptr(),
+        qd_out.as_mut_ptr(),
+    );
+    assert_eq!(s, 0);
+    assert!(q_out.iter().all(|x| x.is_finite()));
+    assert!(qd_out.iter().all(|x| x.is_finite()));
 
     pino_workspace_free(ws);
     pino_model_free(model);
