@@ -1,0 +1,17 @@
+[package]
+name = "pinocchio_wasm"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-2-Clause"
+description = "Modern high-performance WASM-oriented rigid body dynamics kernel inspired by Pinocchio"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+
+[dependencies]
