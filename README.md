@@ -6,7 +6,7 @@ A modern WASM-oriented rigid-body dynamics engine inspired by Pinocchio.
 
 - Modern layered architecture:
   - `core`: error model + linear algebra primitives (`Vec3`, `Mat3`, `Transform`)
-  - `model`: tree model and reusable `Workspace`
+  - `model`: tree model, reusable `Workspace`, and JSON loader (`Model::from_json_str`)
   - `algo`: FK, Jacobian, RNEA, CRBA, ABA, CoM, kinetic/potential energy
   - `ffi`: stable C ABI for WASM/JS embedding
 - Efficient data path:
