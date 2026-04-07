@@ -233,6 +233,193 @@ impl Model {
             .map_err(|_| PinocchioError::InvalidModel("failed to serialize model json"))
     }
 
+    pub fn to_urdf_string(&self, robot_name: &str) -> Result<String> {
+        if self.links.is_empty() {
+            return Err(PinocchioError::InvalidModel("model must not be empty"));
+        }
+        let mut out = String::new();
+        out.push_str(&format!("<robot name=\"{robot_name}\">\n"));
+        for l in &self.links {
+            out.push_str(&format!("  <link name=\"{}\">\n", l.name));
+            out.push_str("    <inertial>\n");
+            out.push_str(&format!(
+                "      <origin xyz=\"{}\"/>\n",
+                fmt_vec3([l.com_local.x, l.com_local.y, l.com_local.z])
+            ));
+            out.push_str(&format!("      <mass value=\"{}\"/>\n", l.mass));
+            out.push_str(&format!(
+                "      <inertia ixx=\"{}\" ixy=\"{}\" ixz=\"{}\" iyy=\"{}\" iyz=\"{}\" izz=\"{}\"/>\n",
+                l.inertia_local_com.m[0][0],
+                l.inertia_local_com.m[0][1],
+                l.inertia_local_com.m[0][2],
+                l.inertia_local_com.m[1][1],
+                l.inertia_local_com.m[1][2],
+                l.inertia_local_com.m[2][2]
+            ));
+            out.push_str("    </inertial>\n");
+            out.push_str("  </link>\n");
+        }
+        for (idx, l) in self.links.iter().enumerate().skip(1) {
+            let parent = l
+                .parent
+                .ok_or(PinocchioError::InvalidModel("non-root link missing parent"))?;
+            let joint = l
+                .joint
+                .as_ref()
+                .ok_or(PinocchioError::InvalidModel("non-root link missing joint"))?;
+            out.push_str(&format!("  <joint name=\"j{idx}\" type=\"revolute\">\n"));
+            out.push_str(&format!(
+                "    <parent link=\"{}\"/>\n",
+                self.links[parent].name
+            ));
+            out.push_str(&format!("    <child link=\"{}\"/>\n", l.name));
+            out.push_str(&format!(
+                "    <origin xyz=\"{}\"/>\n",
+                fmt_vec3([
+                    joint.origin.translation.x,
+                    joint.origin.translation.y,
+                    joint.origin.translation.z
+                ])
+            ));
+            out.push_str(&format!(
+                "    <axis xyz=\"{}\"/>\n",
+                fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
+            ));
+            out.push_str("  </joint>\n");
+        }
+        out.push_str("</robot>\n");
+        Ok(out)
+    }
+
+    pub fn to_sdf_string(&self, model_name: &str) -> Result<String> {
+        if self.links.is_empty() {
+            return Err(PinocchioError::InvalidModel("model must not be empty"));
+        }
+        let mut out = String::new();
+        out.push_str("<sdf version=\"1.7\">\n");
+        out.push_str(&format!("  <model name=\"{model_name}\">\n"));
+        for l in &self.links {
+            out.push_str(&format!("    <link name=\"{}\">\n", l.name));
+            out.push_str("      <inertial>\n");
+            out.push_str(&format!(
+                "        <pose>{}</pose>\n",
+                fmt_pose_xyz([l.com_local.x, l.com_local.y, l.com_local.z])
+            ));
+            out.push_str(&format!("        <mass>{}</mass>\n", l.mass));
+            out.push_str("        <inertia>\n");
+            out.push_str(&format!(
+                "          <ixx>{}</ixx>\n",
+                l.inertia_local_com.m[0][0]
+            ));
+            out.push_str(&format!(
+                "          <ixy>{}</ixy>\n",
+                l.inertia_local_com.m[0][1]
+            ));
+            out.push_str(&format!(
+                "          <ixz>{}</ixz>\n",
+                l.inertia_local_com.m[0][2]
+            ));
+            out.push_str(&format!(
+                "          <iyy>{}</iyy>\n",
+                l.inertia_local_com.m[1][1]
+            ));
+            out.push_str(&format!(
+                "          <iyz>{}</iyz>\n",
+                l.inertia_local_com.m[1][2]
+            ));
+            out.push_str(&format!(
+                "          <izz>{}</izz>\n",
+                l.inertia_local_com.m[2][2]
+            ));
+            out.push_str("        </inertia>\n");
+            out.push_str("      </inertial>\n");
+            out.push_str("    </link>\n");
+        }
+        for (idx, l) in self.links.iter().enumerate().skip(1) {
+            let parent = l
+                .parent
+                .ok_or(PinocchioError::InvalidModel("non-root link missing parent"))?;
+            let joint = l
+                .joint
+                .as_ref()
+                .ok_or(PinocchioError::InvalidModel("non-root link missing joint"))?;
+            out.push_str(&format!("    <joint name=\"j{idx}\" type=\"revolute\">\n"));
+            out.push_str(&format!(
+                "      <parent>{}</parent>\n",
+                self.links[parent].name
+            ));
+            out.push_str(&format!("      <child>{}</child>\n", l.name));
+            out.push_str(&format!(
+                "      <pose>{}</pose>\n",
+                fmt_pose_xyz([
+                    joint.origin.translation.x,
+                    joint.origin.translation.y,
+                    joint.origin.translation.z
+                ])
+            ));
+            out.push_str("      <axis>\n");
+            out.push_str(&format!(
+                "        <xyz>{}</xyz>\n",
+                fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
+            ));
+            out.push_str("      </axis>\n");
+            out.push_str("    </joint>\n");
+        }
+        out.push_str("  </model>\n");
+        out.push_str("</sdf>\n");
+        Ok(out)
+    }
+
+    pub fn to_mjcf_string(&self, model_name: &str) -> Result<String> {
+        if self.links.is_empty() {
+            return Err(PinocchioError::InvalidModel("model must not be empty"));
+        }
+        let mut out = String::new();
+        out.push_str(&format!("<mujoco model=\"{model_name}\">\n"));
+        out.push_str("  <worldbody>\n");
+        self.emit_mjcf_body(0, 2, &mut out)?;
+        out.push_str("  </worldbody>\n");
+        out.push_str("</mujoco>\n");
+        Ok(out)
+    }
+
+    fn emit_mjcf_body(&self, link_idx: usize, indent: usize, out: &mut String) -> Result<()> {
+        let l = &self.links[link_idx];
+        let pad = " ".repeat(indent);
+        out.push_str(&format!("{pad}<body name=\"{}\" pos=\"0 0 0\">\n", l.name));
+        out.push_str(&format!(
+            "{pad}  <inertial pos=\"{}\" mass=\"{}\" diaginertia=\"{}\"/>\n",
+            fmt_vec3([l.com_local.x, l.com_local.y, l.com_local.z]),
+            l.mass,
+            fmt_vec3([
+                l.inertia_local_com.m[0][0],
+                l.inertia_local_com.m[1][1],
+                l.inertia_local_com.m[2][2]
+            ])
+        ));
+        if link_idx != 0 {
+            let joint = l
+                .joint
+                .as_ref()
+                .ok_or(PinocchioError::InvalidModel("non-root link missing joint"))?;
+            out.push_str(&format!(
+                "{pad}  <joint name=\"j{}\" type=\"hinge\" axis=\"{}\" pos=\"{}\"/>\n",
+                link_idx,
+                fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z]),
+                fmt_vec3([
+                    joint.origin.translation.x,
+                    joint.origin.translation.y,
+                    joint.origin.translation.z
+                ])
+            ));
+        }
+        for &child in self.children_of(link_idx) {
+            self.emit_mjcf_body(child, indent + 2, out)?;
+        }
+        out.push_str(&format!("{pad}</body>\n"));
+        Ok(())
+    }
+
     pub fn from_urdf_str(input: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(input)
             .map_err(|_| PinocchioError::InvalidModel("failed to parse urdf xml"))?;
@@ -614,6 +801,14 @@ fn parse_mjcf_body_tree(
         parse_mjcf_body_tree(child_body, Some(body_name.clone()), link_specs, joints)?;
     }
     Ok(())
+}
+
+fn fmt_vec3(v: [f64; 3]) -> String {
+    format!("{} {} {}", v[0], v[1], v[2])
+}
+
+fn fmt_pose_xyz(v: [f64; 3]) -> String {
+    format!("{} {} {} 0 0 0", v[0], v[1], v[2])
 }
 
 fn build_tree_model_from_specs(

@@ -346,6 +346,88 @@ pub extern "C" fn pino_model_to_json(
     }) as i32
 }
 
+fn export_model_text(
+    model: *const ModelHandle,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+    producer: impl FnOnce(&Model) -> Result<String, Status>,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        if out_ptr.is_null() || out_len.is_null() {
+            return Err(Status::NullPtr);
+        }
+        let model_ref = unsafe { &(*model).model };
+        let txt = producer(model_ref)?;
+        let bytes = txt.into_bytes();
+        let len = bytes.len();
+        let ptr_u8 = pino_alloc(len);
+        if ptr_u8.is_null() {
+            return Err(Status::InvalidInput);
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr_u8, len);
+            *out_ptr = ptr_u8;
+            *out_len = len;
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_model_to_urdf(
+    model: *const ModelHandle,
+    robot_name_ptr: *const u8,
+    robot_name_len: usize,
+    out_urdf_ptr: *mut *mut u8,
+    out_urdf_len: *mut usize,
+) -> i32 {
+    let name = unsafe { as_str(robot_name_ptr, robot_name_len) };
+    if name.is_err() {
+        return Status::InvalidInput as i32;
+    }
+    let name = name.unwrap_or("pinocchio_wasm");
+    export_model_text(model, out_urdf_ptr, out_urdf_len, |m| {
+        m.to_urdf_string(name).map_err(|_| Status::AlgoFailed)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_model_to_sdf(
+    model: *const ModelHandle,
+    model_name_ptr: *const u8,
+    model_name_len: usize,
+    out_sdf_ptr: *mut *mut u8,
+    out_sdf_len: *mut usize,
+) -> i32 {
+    let name = unsafe { as_str(model_name_ptr, model_name_len) };
+    if name.is_err() {
+        return Status::InvalidInput as i32;
+    }
+    let name = name.unwrap_or("pinocchio_wasm");
+    export_model_text(model, out_sdf_ptr, out_sdf_len, |m| {
+        m.to_sdf_string(name).map_err(|_| Status::AlgoFailed)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_model_to_mjcf(
+    model: *const ModelHandle,
+    model_name_ptr: *const u8,
+    model_name_len: usize,
+    out_mjcf_ptr: *mut *mut u8,
+    out_mjcf_len: *mut usize,
+) -> i32 {
+    let name = unsafe { as_str(model_name_ptr, model_name_len) };
+    if name.is_err() {
+        return Status::InvalidInput as i32;
+    }
+    let name = name.unwrap_or("pinocchio_wasm");
+    export_model_text(model, out_mjcf_ptr, out_mjcf_len, |m| {
+        m.to_mjcf_string(name).map_err(|_| Status::AlgoFailed)
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pino_rnea(
     model: *const ModelHandle,
