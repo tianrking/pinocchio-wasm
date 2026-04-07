@@ -448,6 +448,93 @@ pub extern "C" fn pino_aba_batch(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_constrained_aba_locked_joints(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    tau: *const f64,
+    locked_mask_i32: *const i32,
+    gravity_xyz: *const f64,
+    qdd_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let tau = unsafe { as_slice(tau, n)? };
+        let locked_mask = unsafe { as_slice(locked_mask_i32, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let qdd_out = unsafe { as_mut_slice(qdd_out, n)? };
+
+        let locked: Vec<bool> = locked_mask.iter().map(|v| *v != 0).collect();
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let qdd = algo::constrained_aba_locked_joints(
+            model_ref,
+            q,
+            qd,
+            tau,
+            &locked,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        qdd_out.copy_from_slice(&qdd);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_constrained_aba_locked_joints_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_batch: *const f64,
+    tau_batch: *const f64,
+    batch_size: usize,
+    locked_mask_i32: *const i32,
+    gravity_xyz: *const f64,
+    qdd_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_batch = unsafe { as_slice(qd_batch, total)? };
+        let tau_batch = unsafe { as_slice(tau_batch, total)? };
+        let locked_mask = unsafe { as_slice(locked_mask_i32, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let qdd_out = unsafe { as_mut_slice(qdd_out, total)? };
+
+        let locked: Vec<bool> = locked_mask.iter().map(|v| *v != 0).collect();
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::constrained_aba_locked_joints_batch(
+            model_ref,
+            q_batch,
+            qd_batch,
+            tau_batch,
+            batch_size,
+            &locked,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            qdd_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_collision_min_distance(
     model: *const ModelHandle,
     collision: *const CollisionHandle,

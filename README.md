@@ -50,6 +50,8 @@ Output:
   - `pino_rnea_batch`
   - `pino_aba`
   - `pino_aba_batch`
+  - `pino_constrained_aba_locked_joints`
+  - `pino_constrained_aba_locked_joints_batch`
   - `pino_rollout_aba_euler`
   - `pino_forward_kinematics_poses`
   - `pino_forward_kinematics_poses_batch`
