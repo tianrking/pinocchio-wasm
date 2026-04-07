@@ -27,7 +27,12 @@ pub struct Link {
 }
 
 impl Link {
-    pub fn root(name: impl Into<String>, mass: f64, com_local: Vec3, inertia_local_com: Mat3) -> Self {
+    pub fn root(
+        name: impl Into<String>,
+        mass: f64,
+        com_local: Vec3,
+        inertia_local_com: Mat3,
+    ) -> Self {
         Self {
             name: name.into(),
             parent: None,
@@ -68,10 +73,14 @@ pub struct Model {
 impl Model {
     pub fn new(links: Vec<Link>) -> Result<Self> {
         if links.is_empty() {
-            return Err(PinocchioError::InvalidModel("model must contain at least one root link"));
+            return Err(PinocchioError::InvalidModel(
+                "model must contain at least one root link",
+            ));
         }
         if links[0].parent.is_some() || links[0].joint.is_some() {
-            return Err(PinocchioError::InvalidModel("link[0] must be a fixed root link"));
+            return Err(PinocchioError::InvalidModel(
+                "link[0] must be a fixed root link",
+            ));
         }
 
         let mut parent_to_children = vec![Vec::new(); links.len()];

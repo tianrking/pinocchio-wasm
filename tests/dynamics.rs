@@ -1,4 +1,6 @@
-use pinocchio_wasm::algo::{aba, bias_forces, center_of_mass, crba, frame_jacobian, kinetic_energy, potential_energy, rnea};
+use pinocchio_wasm::algo::{
+    aba, bias_forces, center_of_mass, crba, frame_jacobian, kinetic_energy, potential_energy, rnea,
+};
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::{Joint, Link, Model, Workspace};
 
@@ -50,7 +52,11 @@ fn rnea_matches_mass_times_acc_plus_bias() {
         }
     }
 
-    let lhs: Vec<f64> = tau.iter().zip(mqdd.iter().zip(b.iter())).map(|(t, (m, b))| t - (m + b)).collect();
+    let lhs: Vec<f64> = tau
+        .iter()
+        .zip(mqdd.iter().zip(b.iter()))
+        .map(|(t, (m, b))| t - (m + b))
+        .collect();
     assert!(max_abs(&lhs) < 1e-6, "closure residual too high: {:?}", lhs);
 }
 
@@ -65,8 +71,16 @@ fn aba_inverts_dynamics() {
 
     let qdd = aba(&model, &q, &qd, &tau, g, &mut ws).expect("aba");
     let tau_reconstructed = rnea(&model, &q, &qd, &qdd, g, &mut ws).expect("rnea");
-    let residual: Vec<f64> = tau.iter().zip(tau_reconstructed.iter()).map(|(a, b)| a - b).collect();
-    assert!(max_abs(&residual) < 1e-6, "aba residual too high: {:?}", residual);
+    let residual: Vec<f64> = tau
+        .iter()
+        .zip(tau_reconstructed.iter())
+        .map(|(a, b)| a - b)
+        .collect();
+    assert!(
+        max_abs(&residual) < 1e-6,
+        "aba residual too high: {:?}",
+        residual
+    );
 }
 
 #[test]

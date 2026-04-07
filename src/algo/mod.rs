@@ -105,7 +105,8 @@ pub fn rnea(
         tau[jidx] = ws.torque[link_idx].dot(axis);
 
         let parent = model.links[link_idx].parent.expect("validated model");
-        let r_parent_to_joint = ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
+        let r_parent_to_joint =
+            ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
         let child_force = ws.force[link_idx];
         let child_torque = ws.torque[link_idx];
         ws.force[parent] += child_force;
@@ -333,7 +334,12 @@ pub fn kinetic_energy(model: &Model, q: &[f64], qd: &[f64], ws: &mut Workspace) 
     Ok(e)
 }
 
-pub fn potential_energy(model: &Model, q: &[f64], gravity: Vec3, ws: &mut Workspace) -> Result<f64> {
+pub fn potential_energy(
+    model: &Model,
+    q: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<f64> {
     let n = model.nv();
     let qd = vec![0.0; n];
     let qdd = vec![0.0; n];
