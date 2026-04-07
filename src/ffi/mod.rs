@@ -1,7 +1,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use crate::algo;
-use crate::collision::{self, CollisionModel, Sphere};
+use crate::collision::{self, CollisionModel, Geometry, Sphere};
 use crate::core::math::{Mat3, Vec3};
 use crate::model::{Joint, Link, Model, Workspace};
 use core::ptr;
@@ -239,8 +239,7 @@ pub extern "C" fn pino_collision_model_create(
                 radius: radii[i],
             });
         }
-        let collision =
-            CollisionModel::with_all_pairs(spheres).map_err(|_| Status::BuildModelFailed)?;
+        let collision = CollisionModel::from_spheres(spheres).map_err(|_| Status::BuildModelFailed)?;
         Ok(CollisionHandle { collision })
     };
 
@@ -1055,6 +1054,98 @@ pub extern "C" fn pino_apply_contact_impulse_batch(
     }) as i32
 }
 
+const GEO_SPHERE: i32 = 0;
+const GEO_BOX: i32 = 1;
+const GEO_CAPSULE: i32 = 2;
+const GEO_CYLINDER: i32 = 3;
+const GEO_MESH_APPROX: i32 = 4;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_model_create_geometries(
+    num_geometries: usize,
+    geom_types_i32: *const i32,
+    link_indices_i32: *const i32,
+    centers_xyz: *const f64,
+    params_xyz: *const f64,
+    pair_filter_flags_i32x2: *const i32,
+) -> *mut CollisionHandle {
+    if num_geometries == 0 {
+        return ptr::null_mut();
+    }
+
+    let build = || -> Result<CollisionHandle, Status> {
+        let geom_types = unsafe { as_slice(geom_types_i32, num_geometries)? };
+        let link_indices = unsafe { as_slice(link_indices_i32, num_geometries)? };
+        let centers_xyz = unsafe { as_slice(centers_xyz, 3 * num_geometries)? };
+        let params_xyz = unsafe { as_slice(params_xyz, 3 * num_geometries)? };
+        let flags = unsafe { as_slice(pair_filter_flags_i32x2, 2)? };
+
+        let mut geometries = Vec::with_capacity(num_geometries);
+        for i in 0..num_geometries {
+            let link_index = usize::try_from(link_indices[i]).map_err(|_| Status::InvalidInput)?;
+            let center = Vec3::new(
+                centers_xyz[3 * i],
+                centers_xyz[3 * i + 1],
+                centers_xyz[3 * i + 2],
+            );
+            let p0 = params_xyz[3 * i];
+            let p1 = params_xyz[3 * i + 1];
+            let p2 = params_xyz[3 * i + 2];
+
+            let geom = match geom_types[i] {
+                GEO_SPHERE => Geometry::Sphere {
+                    link_index,
+                    center_local: center,
+                    radius: p0,
+                },
+                GEO_BOX => Geometry::Box {
+                    link_index,
+                    center_local: center,
+                    half_extents: Vec3::new(p0, p1, p2),
+                },
+                GEO_CAPSULE => Geometry::Capsule {
+                    link_index,
+                    center_local: center,
+                    half_length: p0,
+                    radius: p1,
+                },
+                GEO_CYLINDER => Geometry::Cylinder {
+                    link_index,
+                    center_local: center,
+                    half_length: p0,
+                    radius: p1,
+                },
+                GEO_MESH_APPROX => Geometry::MeshApprox {
+                    link_index,
+                    center_local: center,
+                    half_extents: Vec3::new(p0, p1, p2),
+                },
+                _ => return Err(Status::InvalidInput),
+            };
+            geometries.push(geom);
+        }
+
+        let filter = collision::PairFilter {
+            ignore_same_link: flags[0] != 0,
+            ignore_parent_child: flags[1] != 0,
+        };
+        let mut pairs = Vec::new();
+        for i in 0..num_geometries {
+            for j in (i + 1)..num_geometries {
+                pairs.push((i, j));
+            }
+        }
+        let collision = CollisionModel::new_with_filter(geometries, pairs, filter)
+            .map_err(|_| Status::BuildModelFailed)?;
+        Ok(CollisionHandle { collision })
+    };
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        _ => ptr::null_mut(),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pino_collision_min_distance(
     model: *const ModelHandle,
@@ -1091,6 +1182,67 @@ pub extern "C" fn pino_collision_min_distance(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_min_distance_detailed(
+    model: *const ModelHandle,
+    collision: *const CollisionHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    distance_out: *mut f64,
+    pair_out_i32x2: *mut i32,
+    normal_out_xyz: *mut f64,
+    point_a_out_xyz: *mut f64,
+    point_b_out_xyz: *mut f64,
+    penetration_out: *mut f64,
+    is_colliding_out: *mut i32,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(collision)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        if distance_out.is_null()
+            || pair_out_i32x2.is_null()
+            || normal_out_xyz.is_null()
+            || point_a_out_xyz.is_null()
+            || point_b_out_xyz.is_null()
+            || penetration_out.is_null()
+            || is_colliding_out.is_null()
+        {
+            return Err(Status::NullPtr);
+        }
+
+        let model_ref = unsafe { &(*model).model };
+        let coll_ref = unsafe { &(*collision).collision };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let pair_out = unsafe { as_mut_slice(pair_out_i32x2, 2)? };
+        let normal_out = unsafe { as_mut_slice(normal_out_xyz, 3)? };
+        let point_a_out = unsafe { as_mut_slice(point_a_out_xyz, 3)? };
+        let point_b_out = unsafe { as_mut_slice(point_b_out_xyz, 3)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+
+        let res = collision::minimum_distance_detailed(model_ref, coll_ref, q, ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            *distance_out = res.distance;
+            *penetration_out = res.penetration_depth;
+            *is_colliding_out = if res.is_colliding { 1 } else { 0 };
+        }
+        pair_out[0] = i32::try_from(res.pair.0).map_err(|_| Status::InvalidInput)?;
+        pair_out[1] = i32::try_from(res.pair.1).map_err(|_| Status::InvalidInput)?;
+        normal_out[0] = res.normal_world.x;
+        normal_out[1] = res.normal_world.y;
+        normal_out[2] = res.normal_world.z;
+        point_a_out[0] = res.point_a.x;
+        point_a_out[1] = res.point_a.y;
+        point_a_out[2] = res.point_a.z;
+        point_b_out[0] = res.point_b.x;
+        point_b_out[1] = res.point_b.y;
+        point_b_out[2] = res.point_b.z;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_collision_min_distance_batch(
     model: *const ModelHandle,
     collision: *const CollisionHandle,
@@ -1118,6 +1270,43 @@ pub extern "C" fn pino_collision_min_distance_batch(
             batch_size,
             ws_ref,
             distances_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_min_distance_detailed_batch(
+    model: *const ModelHandle,
+    collision: *const CollisionHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    batch_size: usize,
+    distances_out: *mut f64,
+    penetration_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(collision)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let coll_ref = unsafe { &(*collision).collision };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let distances_out = unsafe { as_mut_slice(distances_out, batch_size)? };
+        let penetration_out = unsafe { as_mut_slice(penetration_out, batch_size)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        collision::minimum_distance_detailed_batch(
+            model_ref,
+            coll_ref,
+            q_batch,
+            batch_size,
+            ws_ref,
+            distances_out,
+            penetration_out,
         )
         .map_err(|_| Status::AlgoFailed)?;
         Ok(())

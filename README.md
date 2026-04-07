@@ -8,7 +8,7 @@ A modern WASM-oriented rigid-body dynamics engine inspired by Pinocchio.
   - `core`: error model + linear algebra primitives (`Vec3`, `Mat3`, `Transform`)
   - `model`: tree model, reusable `Workspace`, JSON/URDF/SDF/MJCF loaders (`Model::from_json_str`, `Model::from_urdf_str`, `Model::from_sdf_str`, `Model::from_mjcf_str`)
   - `algo`: FK, Jacobian, RNEA, CRBA, ABA, CoM, kinetic/potential energy, contact-constrained dynamics, impulse solve
-  - `collision`: sphere-based minimum distance queries and batched distance queries
+  - `collision`: multi-geometry (`sphere/box/capsule/cylinder/mesh-approx`) with broadphase + pair filtering + structured distance/collision outputs
   - `ffi`: stable C ABI for WASM/JS embedding
 - Efficient data path:
   - contiguous numeric arrays across FFI
@@ -73,8 +73,11 @@ node examples/js/node_demo.mjs
   - `pino_forward_kinematics_poses`
   - `pino_forward_kinematics_poses_batch`
   - `pino_collision_model_create`
+  - `pino_collision_model_create_geometries`
   - `pino_collision_min_distance`
+  - `pino_collision_min_distance_detailed`
   - `pino_collision_min_distance_batch`
+  - `pino_collision_min_distance_detailed_batch`
   - `pino_crba`
   - `pino_frame_jacobian`
   - `pino_center_of_mass`

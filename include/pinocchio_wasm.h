@@ -118,6 +118,60 @@ int32_t pino_apply_contact_impulse_batch(
     double *qd_plus_out,
     double *impulse_out);
 
+void *pino_collision_model_create(
+    size_t num_spheres,
+    const int32_t *link_indices,
+    const double *centers_xyz,
+    const double *radii);
+
+void *pino_collision_model_create_geometries(
+    size_t num_geometries,
+    const int32_t *geom_types_i32,
+    const int32_t *link_indices_i32,
+    const double *centers_xyz,
+    const double *params_xyz,
+    const int32_t *pair_filter_flags_i32x2);
+
+void pino_collision_model_free(void *collision);
+
+int32_t pino_collision_min_distance(
+    const void *model,
+    const void *collision,
+    void *ws,
+    const double *q,
+    double *distance_out,
+    int32_t *pair_out_i32x2);
+
+int32_t pino_collision_min_distance_detailed(
+    const void *model,
+    const void *collision,
+    void *ws,
+    const double *q,
+    double *distance_out,
+    int32_t *pair_out_i32x2,
+    double *normal_out_xyz,
+    double *point_a_out_xyz,
+    double *point_b_out_xyz,
+    double *penetration_out,
+    int32_t *is_colliding_out);
+
+int32_t pino_collision_min_distance_batch(
+    const void *model,
+    const void *collision,
+    void *ws,
+    const double *q_batch,
+    size_t batch_size,
+    double *distances_out);
+
+int32_t pino_collision_min_distance_detailed_batch(
+    const void *model,
+    const void *collision,
+    void *ws,
+    const double *q_batch,
+    size_t batch_size,
+    double *distances_out,
+    double *penetration_out);
+
 #ifdef __cplusplus
 }
 #endif
