@@ -51,6 +51,8 @@ Output:
   - `pino_aba`
   - `pino_aba_batch`
   - `pino_rollout_aba_euler`
+  - `pino_forward_kinematics_poses`
+  - `pino_forward_kinematics_poses_batch`
   - `pino_collision_model_create`
   - `pino_collision_min_distance`
   - `pino_collision_min_distance_batch`

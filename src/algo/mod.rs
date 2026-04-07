@@ -521,3 +521,75 @@ pub fn rollout_aba_euler(
     }
     Ok(())
 }
+
+pub fn forward_kinematics_poses(
+    model: &Model,
+    q: &[f64],
+    ws: &mut Workspace,
+) -> Result<Vec<Transform>> {
+    let n = model.nv();
+    let qd = vec![0.0; n];
+    let qdd = vec![0.0; n];
+    forward_kinematics(model, q, &qd, &qdd, Vec3::zero(), ws)?;
+    Ok(ws.world_pose.clone())
+}
+
+pub fn forward_kinematics_poses_batch(
+    model: &Model,
+    q_batch: &[f64],
+    batch_size: usize,
+    ws: &mut Workspace,
+    translations_out: &mut [f64],
+    rotations_out: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let nl = model.nlinks();
+    let expected_q = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected_q {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: expected_q,
+            got: q_batch.len(),
+        });
+    }
+    let expected_t = batch_size
+        .checked_mul(nl)
+        .and_then(|x| x.checked_mul(3))
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    let expected_r = batch_size
+        .checked_mul(nl)
+        .and_then(|x| x.checked_mul(9))
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if translations_out.len() != expected_t {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: expected_t,
+            got: translations_out.len(),
+        });
+    }
+    if rotations_out.len() != expected_r {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: expected_r,
+            got: rotations_out.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let qb = step * n;
+        let poses = forward_kinematics_poses(model, &q_batch[qb..qb + n], ws)?;
+        for (l, pose) in poses.iter().enumerate() {
+            let tb = (step * nl + l) * 3;
+            translations_out[tb] = pose.translation.x;
+            translations_out[tb + 1] = pose.translation.y;
+            translations_out[tb + 2] = pose.translation.z;
+
+            let rb = (step * nl + l) * 9;
+            for r in 0..3 {
+                for c in 0..3 {
+                    rotations_out[rb + 3 * r + c] = pose.rotation.m[r][c];
+                }
+            }
+        }
+    }
+    Ok(())
+}

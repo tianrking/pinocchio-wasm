@@ -517,6 +517,89 @@ pub extern "C" fn pino_collision_min_distance_batch(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_forward_kinematics_poses(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    translations_out: *mut f64,
+    rotations_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let nl = model_ref.nlinks();
+        let q = unsafe { as_slice(q, n)? };
+        let translations_out = unsafe { as_mut_slice(translations_out, 3 * nl)? };
+        let rotations_out = unsafe { as_mut_slice(rotations_out, 9 * nl)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+
+        let poses =
+            algo::forward_kinematics_poses(model_ref, q, ws_ref).map_err(|_| Status::AlgoFailed)?;
+        for (l, pose) in poses.iter().enumerate() {
+            let tb = l * 3;
+            translations_out[tb] = pose.translation.x;
+            translations_out[tb + 1] = pose.translation.y;
+            translations_out[tb + 2] = pose.translation.z;
+
+            let rb = l * 9;
+            for r in 0..3 {
+                for c in 0..3 {
+                    rotations_out[rb + 3 * r + c] = pose.rotation.m[r][c];
+                }
+            }
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_forward_kinematics_poses_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    batch_size: usize,
+    translations_out: *mut f64,
+    rotations_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let nl = model_ref.nlinks();
+        let total_q = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_t = batch_size
+            .checked_mul(nl)
+            .and_then(|x| x.checked_mul(3))
+            .ok_or(Status::InvalidInput)?;
+        let total_r = batch_size
+            .checked_mul(nl)
+            .and_then(|x| x.checked_mul(9))
+            .ok_or(Status::InvalidInput)?;
+
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
+        let translations_out = unsafe { as_mut_slice(translations_out, total_t)? };
+        let rotations_out = unsafe { as_mut_slice(rotations_out, total_r)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+
+        algo::forward_kinematics_poses_batch(
+            model_ref,
+            q_batch,
+            batch_size,
+            ws_ref,
+            translations_out,
+            rotations_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_rollout_aba_euler(
     model: *const ModelHandle,
     ws: *mut WorkspaceHandle,
