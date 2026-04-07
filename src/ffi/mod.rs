@@ -4,6 +4,7 @@ use crate::algo;
 use crate::core::math::{Mat3, Vec3};
 use crate::model::{Joint, Link, Model, Workspace};
 use core::ptr;
+use core::str;
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,11 @@ unsafe fn as_mut_slice<'a, T>(ptr: *mut T, len: usize) -> Result<&'a mut [T], St
         return Err(Status::NullPtr);
     }
     Ok(unsafe { core::slice::from_raw_parts_mut(ptr, len) })
+}
+
+unsafe fn as_str<'a>(ptr: *const u8, len: usize) -> Result<&'a str, Status> {
+    let bytes = unsafe { as_slice(ptr, len)? };
+    str::from_utf8(bytes).map_err(|_| Status::InvalidInput)
 }
 
 fn run_status<F>(f: F) -> Status
@@ -171,6 +177,40 @@ pub extern "C" fn pino_model_create(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_model_create_from_json(
+    json_ptr: *const u8,
+    json_len: usize,
+) -> *mut ModelHandle {
+    let build = || -> Result<ModelHandle, Status> {
+        let json = unsafe { as_str(json_ptr, json_len)? };
+        let model = Model::from_json_str(json).map_err(|_| Status::BuildModelFailed)?;
+        Ok(ModelHandle { model })
+    };
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        _ => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_model_create_from_urdf(
+    urdf_ptr: *const u8,
+    urdf_len: usize,
+) -> *mut ModelHandle {
+    let build = || -> Result<ModelHandle, Status> {
+        let urdf = unsafe { as_str(urdf_ptr, urdf_len)? };
+        let model = Model::from_urdf_str(urdf).map_err(|_| Status::BuildModelFailed)?;
+        Ok(ModelHandle { model })
+    };
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        _ => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_rnea(
     model: *const ModelHandle,
     ws: *mut WorkspaceHandle,
@@ -232,6 +272,90 @@ pub extern "C" fn pino_aba(
         let qdd =
             algo::aba(model_ref, q, qd, tau, gravity, ws_ref).map_err(|_| Status::AlgoFailed)?;
         qdd_out.copy_from_slice(&qdd);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_rnea_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_batch: *const f64,
+    qdd_batch: *const f64,
+    batch_size: usize,
+    gravity_xyz: *const f64,
+    tau_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_batch = unsafe { as_slice(qd_batch, total)? };
+        let qdd_batch = unsafe { as_slice(qdd_batch, total)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let tau_out = unsafe { as_mut_slice(tau_out, total)? };
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::rnea_batch(
+            model_ref,
+            q_batch,
+            qd_batch,
+            qdd_batch,
+            batch_size,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            tau_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_aba_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_batch: *const f64,
+    tau_batch: *const f64,
+    batch_size: usize,
+    gravity_xyz: *const f64,
+    qdd_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_batch = unsafe { as_slice(qd_batch, total)? };
+        let tau_batch = unsafe { as_slice(tau_batch, total)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let qdd_out = unsafe { as_mut_slice(qdd_out, total)? };
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::aba_batch(
+            model_ref,
+            q_batch,
+            qd_batch,
+            tau_batch,
+            batch_size,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            qdd_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
         Ok(())
     }) as i32
 }

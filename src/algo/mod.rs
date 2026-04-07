@@ -353,3 +353,111 @@ pub fn potential_energy(
     }
     Ok(e)
 }
+
+pub fn rnea_batch(
+    model: &Model,
+    q_batch: &[f64],
+    qd_batch: &[f64],
+    qdd_batch: &[f64],
+    batch_size: usize,
+    gravity: Vec3,
+    ws: &mut Workspace,
+    tau_out: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let expected = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: q_batch.len(),
+        });
+    }
+    if qd_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: qd_batch.len(),
+        });
+    }
+    if qdd_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: qdd_batch.len(),
+        });
+    }
+    if tau_out.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: tau_out.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let b = step * n;
+        let tau = rnea(
+            model,
+            &q_batch[b..b + n],
+            &qd_batch[b..b + n],
+            &qdd_batch[b..b + n],
+            gravity,
+            ws,
+        )?;
+        tau_out[b..b + n].copy_from_slice(&tau);
+    }
+    Ok(())
+}
+
+pub fn aba_batch(
+    model: &Model,
+    q_batch: &[f64],
+    qd_batch: &[f64],
+    tau_batch: &[f64],
+    batch_size: usize,
+    gravity: Vec3,
+    ws: &mut Workspace,
+    qdd_out: &mut [f64],
+) -> Result<()> {
+    let n = model.nv();
+    let expected = batch_size
+        .checked_mul(n)
+        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+    if q_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: q_batch.len(),
+        });
+    }
+    if qd_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: qd_batch.len(),
+        });
+    }
+    if tau_batch.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: tau_batch.len(),
+        });
+    }
+    if qdd_out.len() != expected {
+        return Err(PinocchioError::DimensionMismatch {
+            expected,
+            got: qdd_out.len(),
+        });
+    }
+
+    for step in 0..batch_size {
+        let b = step * n;
+        let qdd = aba(
+            model,
+            &q_batch[b..b + n],
+            &qd_batch[b..b + n],
+            &tau_batch[b..b + n],
+            gravity,
+            ws,
+        )?;
+        qdd_out[b..b + n].copy_from_slice(&qdd);
+    }
+    Ok(())
+}
