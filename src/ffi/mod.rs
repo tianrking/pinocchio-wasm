@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use crate::algo;
 use crate::core::math::{Mat3, Vec3};
 use crate::model::{Joint, Link, Model, Workspace};

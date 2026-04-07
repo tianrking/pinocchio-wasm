@@ -1,1 +1,15 @@
-/target
+/target/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Local env files
+.env
+.env.*

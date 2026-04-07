@@ -130,7 +130,7 @@ impl Mat3 {
         Self::new(out)
     }
 
-    pub fn add(self, rhs: Self) -> Self {
+    pub fn add_mat(self, rhs: Self) -> Self {
         let mut out = Self::zero();
         for (r, row) in out.m.iter_mut().enumerate() {
             for (c, cell) in row.iter_mut().enumerate() {
