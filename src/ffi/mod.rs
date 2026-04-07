@@ -319,6 +319,34 @@ pub extern "C" fn pino_model_create_from_mjcf(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_model_to_json(
+    model: *const ModelHandle,
+    out_json_ptr: *mut *mut u8,
+    out_json_len: *mut usize,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        if out_json_ptr.is_null() || out_json_len.is_null() {
+            return Err(Status::NullPtr);
+        }
+        let model_ref = unsafe { &(*model).model };
+        let json = model_ref.to_json_string().map_err(|_| Status::AlgoFailed)?;
+        let bytes = json.into_bytes();
+        let len = bytes.len();
+        let ptr_u8 = pino_alloc(len);
+        if ptr_u8.is_null() {
+            return Err(Status::InvalidInput);
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr_u8, len);
+            *out_json_ptr = ptr_u8;
+            *out_json_len = len;
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_rnea(
     model: *const ModelHandle,
     ws: *mut WorkspaceHandle,

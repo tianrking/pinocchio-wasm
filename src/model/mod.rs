@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::{Mat3, Transform, Vec3};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone)]
@@ -205,6 +205,34 @@ impl Model {
         Model::new(links)
     }
 
+    pub fn to_json_string(&self) -> Result<String> {
+        let mut links = Vec::with_capacity(self.links.len());
+        for (idx, l) in self.links.iter().enumerate() {
+            let joint = if idx == 0 {
+                None
+            } else {
+                l.joint.as_ref().map(|j| JsonJointSpec {
+                    axis: [j.axis.x, j.axis.y, j.axis.z],
+                    origin: [
+                        j.origin.translation.x,
+                        j.origin.translation.y,
+                        j.origin.translation.z,
+                    ],
+                })
+            };
+            links.push(JsonLinkSpec {
+                name: l.name.clone(),
+                parent: l.parent,
+                mass: l.mass,
+                com: [l.com_local.x, l.com_local.y, l.com_local.z],
+                inertia: l.inertia_local_com.m,
+                joint,
+            });
+        }
+        serde_json::to_string_pretty(&JsonModelSpec { links })
+            .map_err(|_| PinocchioError::InvalidModel("failed to serialize model json"))
+    }
+
     pub fn from_urdf_str(input: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(input)
             .map_err(|_| PinocchioError::InvalidModel("failed to parse urdf xml"))?;
@@ -396,12 +424,12 @@ impl Model {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JsonModelSpec {
     links: Vec<JsonLinkSpec>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JsonLinkSpec {
     name: String,
     parent: Option<usize>,
@@ -411,7 +439,7 @@ struct JsonLinkSpec {
     joint: Option<JsonJointSpec>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JsonJointSpec {
     axis: [f64; 3],
     origin: [f64; 3],

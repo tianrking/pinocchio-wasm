@@ -76,6 +76,7 @@ node examples/js/node_demo.mjs
   - `pino_center_of_mass`
   - `pino_energy`
 - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`, `pino_model_create_from_mjcf`
+- model export: `pino_model_to_json` (buffer released via `pino_dealloc`)
 
 ## SDK Helper
 

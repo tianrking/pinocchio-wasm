@@ -16,6 +16,7 @@ void *pino_model_create_from_json(const uint8_t *json_ptr, size_t json_len);
 void *pino_model_create_from_urdf(const uint8_t *urdf_ptr, size_t urdf_len);
 void *pino_model_create_from_sdf(const uint8_t *sdf_ptr, size_t sdf_len);
 void *pino_model_create_from_mjcf(const uint8_t *mjcf_ptr, size_t mjcf_len);
+int32_t pino_model_to_json(const void *model, uint8_t **out_json_ptr, size_t *out_json_len);
 void pino_model_free(void *model);
 size_t pino_model_nq(const void *model);
 size_t pino_model_nlinks(const void *model);
