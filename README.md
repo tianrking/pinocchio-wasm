@@ -6,7 +6,7 @@ A modern WASM-oriented rigid-body dynamics engine inspired by Pinocchio.
 
 - Modern layered architecture:
   - `core`: error model + linear algebra primitives (`Vec3`, `Mat3`, `Transform`)
-  - `model`: tree model, reusable `Workspace`, JSON loader (`Model::from_json_str`), URDF loader (`Model::from_urdf_str`)
+  - `model`: tree model, reusable `Workspace`, JSON/URDF/SDF loaders (`Model::from_json_str`, `Model::from_urdf_str`, `Model::from_sdf_str`)
   - `algo`: FK, Jacobian, RNEA, CRBA, ABA, CoM, kinetic/potential energy
   - `ffi`: stable C ABI for WASM/JS embedding
 - Efficient data path:
@@ -53,7 +53,7 @@ Output:
   - `pino_frame_jacobian`
   - `pino_center_of_mass`
   - `pino_energy`
-  - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`
+  - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`
 
 All algorithm APIs are pointer + length driven and return status code (`0` means success).
 

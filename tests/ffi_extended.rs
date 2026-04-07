@@ -1,6 +1,7 @@
 use pinocchio_wasm::ffi::{
-    pino_aba_batch, pino_model_create_from_json, pino_model_create_from_urdf, pino_model_free,
-    pino_model_nq, pino_rnea_batch, pino_workspace_free, pino_workspace_new,
+    pino_aba_batch, pino_model_create_from_json, pino_model_create_from_sdf,
+    pino_model_create_from_urdf, pino_model_free, pino_model_nq, pino_rnea_batch,
+    pino_workspace_free, pino_workspace_new,
 };
 
 #[test]
@@ -47,6 +48,24 @@ fn ffi_create_model_from_json_and_urdf() {
     assert!(!m_urdf.is_null());
     assert_eq!(pino_model_nq(m_urdf), 1);
     pino_model_free(m_urdf);
+
+    let sdf = r#"
+    <sdf version="1.7">
+      <model name="r">
+        <link name="base"/>
+        <link name="l1"/>
+        <joint name="j1" type="revolute">
+          <parent>base</parent>
+          <child>l1</child>
+          <axis><xyz>0 0 1</xyz></axis>
+        </joint>
+      </model>
+    </sdf>
+    "#;
+    let m_sdf = pino_model_create_from_sdf(sdf.as_ptr(), sdf.len());
+    assert!(!m_sdf.is_null());
+    assert_eq!(pino_model_nq(m_sdf), 1);
+    pino_model_free(m_sdf);
 }
 
 #[test]

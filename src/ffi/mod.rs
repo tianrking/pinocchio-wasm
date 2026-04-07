@@ -211,6 +211,23 @@ pub extern "C" fn pino_model_create_from_urdf(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_model_create_from_sdf(
+    sdf_ptr: *const u8,
+    sdf_len: usize,
+) -> *mut ModelHandle {
+    let build = || -> Result<ModelHandle, Status> {
+        let sdf = unsafe { as_str(sdf_ptr, sdf_len)? };
+        let model = Model::from_sdf_str(sdf).map_err(|_| Status::BuildModelFailed)?;
+        Ok(ModelHandle { model })
+    };
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        _ => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_rnea(
     model: *const ModelHandle,
     ws: *mut WorkspaceHandle,
