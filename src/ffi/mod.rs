@@ -374,6 +374,29 @@ fn export_model_text(
     }) as i32
 }
 
+fn parse_contacts(
+    num_contacts: usize,
+    link_indices_i32: *const i32,
+    points_xyz: *const f64,
+    normals_xyz: *const f64,
+    accel_bias: *const f64,
+) -> Result<Vec<algo::ContactPoint>, Status> {
+    let links = unsafe { as_slice(link_indices_i32, num_contacts)? };
+    let points = unsafe { as_slice(points_xyz, 3 * num_contacts)? };
+    let normals = unsafe { as_slice(normals_xyz, 3 * num_contacts)? };
+    let bias = unsafe { as_slice(accel_bias, num_contacts)? };
+    let mut out = Vec::with_capacity(num_contacts);
+    for i in 0..num_contacts {
+        out.push(algo::ContactPoint {
+            link_index: usize::try_from(links[i]).map_err(|_| Status::InvalidInput)?,
+            point_local: Vec3::new(points[3 * i], points[3 * i + 1], points[3 * i + 2]),
+            normal_world: Vec3::new(normals[3 * i], normals[3 * i + 1], normals[3 * i + 2]),
+            acceleration_bias: bias[i],
+        });
+    }
+    Ok(out)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pino_model_to_urdf(
     model: *const ModelHandle,
@@ -809,6 +832,223 @@ pub extern "C" fn pino_constrained_aba_locked_joints_batch(
             Vec3::new(g[0], g[1], g[2]),
             ws_ref,
             qdd_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_contact_constrained_dynamics(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    tau: *const f64,
+    gravity_xyz: *const f64,
+    num_contacts: usize,
+    contact_link_indices_i32: *const i32,
+    contact_points_xyz: *const f64,
+    contact_normals_xyz: *const f64,
+    contact_accel_bias: *const f64,
+    qdd_out: *mut f64,
+    lambda_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let tau = unsafe { as_slice(tau, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let qdd_out = unsafe { as_mut_slice(qdd_out, n)? };
+        let lambda_out = unsafe { as_mut_slice(lambda_out, num_contacts)? };
+        let contacts = parse_contacts(
+            num_contacts,
+            contact_link_indices_i32,
+            contact_points_xyz,
+            contact_normals_xyz,
+            contact_accel_bias,
+        )?;
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out = algo::constrained_forward_dynamics_contacts(
+            model_ref,
+            q,
+            qd,
+            tau,
+            &contacts,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        qdd_out.copy_from_slice(&out.qdd);
+        lambda_out.copy_from_slice(&out.lambda_normal);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_contact_constrained_dynamics_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_batch: *const f64,
+    tau_batch: *const f64,
+    batch_size: usize,
+    gravity_xyz: *const f64,
+    num_contacts: usize,
+    contact_link_indices_i32: *const i32,
+    contact_points_xyz: *const f64,
+    contact_normals_xyz: *const f64,
+    contact_accel_bias: *const f64,
+    qdd_out: *mut f64,
+    lambda_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_lambda = batch_size
+            .checked_mul(num_contacts)
+            .ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_batch = unsafe { as_slice(qd_batch, total)? };
+        let tau_batch = unsafe { as_slice(tau_batch, total)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let qdd_out = unsafe { as_mut_slice(qdd_out, total)? };
+        let lambda_out = unsafe { as_mut_slice(lambda_out, total_lambda)? };
+        let contacts = parse_contacts(
+            num_contacts,
+            contact_link_indices_i32,
+            contact_points_xyz,
+            contact_normals_xyz,
+            contact_accel_bias,
+        )?;
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::constrained_forward_dynamics_contacts_batch(
+            model_ref,
+            q_batch,
+            qd_batch,
+            tau_batch,
+            batch_size,
+            &contacts,
+            Vec3::new(g[0], g[1], g[2]),
+            ws_ref,
+            qdd_out,
+            lambda_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_apply_contact_impulse(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd_minus: *const f64,
+    restitution: f64,
+    num_contacts: usize,
+    contact_link_indices_i32: *const i32,
+    contact_points_xyz: *const f64,
+    contact_normals_xyz: *const f64,
+    qd_plus_out: *mut f64,
+    impulse_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let qd_minus = unsafe { as_slice(qd_minus, n)? };
+        let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, n)? };
+        let impulse_out = unsafe { as_mut_slice(impulse_out, num_contacts)? };
+        let zero_bias = vec![0.0; num_contacts];
+        let contacts = parse_contacts(
+            num_contacts,
+            contact_link_indices_i32,
+            contact_points_xyz,
+            contact_normals_xyz,
+            zero_bias.as_ptr(),
+        )?;
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out = algo::apply_contact_impulses(
+            model_ref,
+            q,
+            qd_minus,
+            &contacts,
+            restitution,
+            ws_ref,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        qd_plus_out.copy_from_slice(&out.qd_plus);
+        impulse_out.copy_from_slice(&out.impulse_normal);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_apply_contact_impulse_batch(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    qd_minus_batch: *const f64,
+    batch_size: usize,
+    restitution: f64,
+    num_contacts: usize,
+    contact_link_indices_i32: *const i32,
+    contact_points_xyz: *const f64,
+    contact_normals_xyz: *const f64,
+    qd_plus_out: *mut f64,
+    impulse_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_impulse = batch_size
+            .checked_mul(num_contacts)
+            .ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let qd_minus_batch = unsafe { as_slice(qd_minus_batch, total)? };
+        let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, total)? };
+        let impulse_out = unsafe { as_mut_slice(impulse_out, total_impulse)? };
+        let zero_bias = vec![0.0; num_contacts];
+        let contacts = parse_contacts(
+            num_contacts,
+            contact_link_indices_i32,
+            contact_points_xyz,
+            contact_normals_xyz,
+            zero_bias.as_ptr(),
+        )?;
+        let ws_ref = unsafe { &mut (*ws).ws };
+        algo::apply_contact_impulses_batch(
+            model_ref,
+            q_batch,
+            qd_minus_batch,
+            batch_size,
+            &contacts,
+            restitution,
+            ws_ref,
+            qd_plus_out,
+            impulse_out,
         )
         .map_err(|_| Status::AlgoFailed)?;
         Ok(())

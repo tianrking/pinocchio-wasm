@@ -60,6 +60,64 @@ int32_t pino_rnea(
     const double *gravity_xyz,
     double *tau_out);
 
+int32_t pino_contact_constrained_dynamics(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *tau,
+    const double *gravity_xyz,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_accel_bias,
+    double *qdd_out,
+    double *lambda_out);
+
+int32_t pino_contact_constrained_dynamics_batch(
+    const void *model,
+    void *ws,
+    const double *q_batch,
+    const double *qd_batch,
+    const double *tau_batch,
+    size_t batch_size,
+    const double *gravity_xyz,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_accel_bias,
+    double *qdd_out,
+    double *lambda_out);
+
+int32_t pino_apply_contact_impulse(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd_minus,
+    double restitution,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    double *qd_plus_out,
+    double *impulse_out);
+
+int32_t pino_apply_contact_impulse_batch(
+    const void *model,
+    void *ws,
+    const double *q_batch,
+    const double *qd_minus_batch,
+    size_t batch_size,
+    double restitution,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    double *qd_plus_out,
+    double *impulse_out);
+
 #ifdef __cplusplus
 }
 #endif
