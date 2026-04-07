@@ -37,9 +37,17 @@ Output:
 
 - `target/wasm32-unknown-unknown/release/pinocchio_wasm.wasm`
 
+Node.js quick demo:
+
+```bash
+node examples/js/node_demo.mjs
+```
+
 ## C ABI Overview
 
 - Model lifecycle:
+  - `pino_alloc`
+  - `pino_dealloc`
   - `pino_model_create`
   - `pino_model_free`
 - Workspace lifecycle:
@@ -67,7 +75,12 @@ Output:
   - `pino_frame_jacobian`
   - `pino_center_of_mass`
   - `pino_energy`
-  - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`, `pino_model_create_from_mjcf`
+- model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`, `pino_model_create_from_mjcf`
+
+## SDK Helper
+
+- JS helper SDK: `js/pinocchio_wasm.mjs`
+- C header for embedding: `include/pinocchio_wasm.h`
 
 All algorithm APIs are pointer + length driven and return status code (`0` means success).
 

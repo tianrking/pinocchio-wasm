@@ -72,6 +72,27 @@ pub extern "C" fn pino_status_ok() -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_alloc(size: usize) -> *mut u8 {
+    if size == 0 {
+        return ptr::null_mut();
+    }
+    let mut buf = Vec::<u8>::with_capacity(size);
+    let p = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    p
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_dealloc(ptr_u8: *mut u8, size: usize) {
+    if ptr_u8.is_null() || size == 0 {
+        return;
+    }
+    unsafe {
+        drop(Vec::from_raw_parts(ptr_u8, 0, size));
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_model_free(model: *mut ModelHandle) {
     if model.is_null() {
         return;
