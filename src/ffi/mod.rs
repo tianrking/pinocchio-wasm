@@ -1,6 +1,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use crate::algo;
+use crate::collision::{self, CollisionModel, Sphere};
 use crate::core::math::{Mat3, Vec3};
 use crate::model::{Joint, Link, Model, Workspace};
 use core::ptr;
@@ -23,6 +24,10 @@ pub struct ModelHandle {
 
 pub struct WorkspaceHandle {
     pub ws: Workspace,
+}
+
+pub struct CollisionHandle {
+    pub collision: CollisionModel,
 }
 
 fn check_non_null<T>(p: *const T) -> Result<(), Status> {
@@ -80,6 +85,14 @@ pub extern "C" fn pino_workspace_free(ws: *mut WorkspaceHandle) {
         return;
     }
     unsafe { drop(Box::from_raw(ws)) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_model_free(collision: *mut CollisionHandle) {
+    if collision.is_null() {
+        return;
+    }
+    unsafe { drop(Box::from_raw(collision)) };
 }
 
 #[unsafe(no_mangle)]
@@ -168,6 +181,46 @@ pub extern "C" fn pino_model_create(
 
         let model = Model::new(links).map_err(|_| Status::BuildModelFailed)?;
         Ok(ModelHandle { model })
+    };
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        _ => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_model_create(
+    num_spheres: usize,
+    link_indices: *const i32,
+    centers_xyz: *const f64,
+    radii: *const f64,
+) -> *mut CollisionHandle {
+    if num_spheres == 0 {
+        return ptr::null_mut();
+    }
+
+    let build = || -> Result<CollisionHandle, Status> {
+        let link_indices = unsafe { as_slice(link_indices, num_spheres)? };
+        let centers_xyz = unsafe { as_slice(centers_xyz, 3 * num_spheres)? };
+        let radii = unsafe { as_slice(radii, num_spheres)? };
+
+        let mut spheres = Vec::with_capacity(num_spheres);
+        for i in 0..num_spheres {
+            let link_index = usize::try_from(link_indices[i]).map_err(|_| Status::InvalidInput)?;
+            spheres.push(Sphere {
+                link_index,
+                center_local: Vec3::new(
+                    centers_xyz[3 * i],
+                    centers_xyz[3 * i + 1],
+                    centers_xyz[3 * i + 2],
+                ),
+                radius: radii[i],
+            });
+        }
+        let collision =
+            CollisionModel::with_all_pairs(spheres).map_err(|_| Status::BuildModelFailed)?;
+        Ok(CollisionHandle { collision })
     };
 
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
@@ -388,6 +441,75 @@ pub extern "C" fn pino_aba_batch(
             Vec3::new(g[0], g[1], g[2]),
             ws_ref,
             qdd_out,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_min_distance(
+    model: *const ModelHandle,
+    collision: *const CollisionHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    distance_out: *mut f64,
+    pair_out_i32x2: *mut i32,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(collision)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        if distance_out.is_null() || pair_out_i32x2.is_null() {
+            return Err(Status::NullPtr);
+        }
+
+        let model_ref = unsafe { &(*model).model };
+        let coll_ref = unsafe { &(*collision).collision };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let pair_out = unsafe { as_mut_slice(pair_out_i32x2, 2)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+
+        let res = collision::minimum_distance(model_ref, coll_ref, q, ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            *distance_out = res.distance;
+        }
+        pair_out[0] = i32::try_from(res.pair.0).map_err(|_| Status::InvalidInput)?;
+        pair_out[1] = i32::try_from(res.pair.1).map_err(|_| Status::InvalidInput)?;
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_collision_min_distance_batch(
+    model: *const ModelHandle,
+    collision: *const CollisionHandle,
+    ws: *mut WorkspaceHandle,
+    q_batch: *const f64,
+    batch_size: usize,
+    distances_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(collision)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let coll_ref = unsafe { &(*collision).collision };
+        let n = model_ref.nv();
+        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let distances_out = unsafe { as_mut_slice(distances_out, batch_size)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        collision::minimum_distance_batch(
+            model_ref,
+            coll_ref,
+            q_batch,
+            batch_size,
+            ws_ref,
+            distances_out,
         )
         .map_err(|_| Status::AlgoFailed)?;
         Ok(())

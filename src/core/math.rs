@@ -32,6 +32,10 @@ impl Vec3 {
         self.dot(self)
     }
 
+    pub fn norm(self) -> f64 {
+        self.norm2().sqrt()
+    }
+
     pub fn scale(self, k: f64) -> Self {
         Self::new(self.x * k, self.y * k, self.z * k)
     }

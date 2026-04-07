@@ -1,4 +1,5 @@
 pub mod algo;
+pub mod collision;
 pub mod core;
 pub mod ffi;
 pub mod model;
