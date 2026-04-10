@@ -1555,3 +1555,121 @@ pub extern "C" fn pino_energy(
         Ok(())
     }) as i32
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_inverse_kinematics(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_init: *const f64,
+    target_link: usize,
+    target_pos_xyz: *const f64,
+    target_rot_row_major: *const f64,
+    max_iter: usize,
+    eps: f64,
+    damping: f64,
+    q_out: *mut f64,
+    converged_out: *mut i32,
+    err_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+
+        let q_init = unsafe { as_slice(q_init, n)? };
+        let pos = unsafe { as_slice(target_pos_xyz, 3)? };
+        let rot = unsafe { as_slice(target_rot_row_major, 9)? };
+        let q_out = unsafe { as_mut_slice(q_out, n)? };
+
+        let target_pos = Vec3::new(pos[0], pos[1], pos[2]);
+        let target_rot = Mat3::new([
+            [rot[0], rot[1], rot[2]],
+            [rot[3], rot[4], rot[5]],
+            [rot[6], rot[7], rot[8]],
+        ]);
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let result = algo::inverse_kinematics(
+            model_ref,
+            q_init,
+            target_link,
+            target_pos,
+            target_rot,
+            ws_ref,
+            max_iter,
+            eps,
+            damping,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+
+        q_out.copy_from_slice(&result.q);
+        if !converged_out.is_null() {
+            unsafe {
+                *converged_out = if result.converged { 1 } else { 0 };
+            }
+        }
+        if !err_out.is_null() {
+            unsafe {
+                *err_out = result.err;
+            }
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_inverse_kinematics_position(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q_init: *const f64,
+    target_link: usize,
+    target_pos_xyz: *const f64,
+    max_iter: usize,
+    eps: f64,
+    damping: f64,
+    q_out: *mut f64,
+    converged_out: *mut i32,
+    err_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+
+        let q_init = unsafe { as_slice(q_init, n)? };
+        let pos = unsafe { as_slice(target_pos_xyz, 3)? };
+        let q_out = unsafe { as_mut_slice(q_out, n)? };
+
+        let target_pos = Vec3::new(pos[0], pos[1], pos[2]);
+
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let result = algo::inverse_kinematics_position(
+            model_ref,
+            q_init,
+            target_link,
+            target_pos,
+            ws_ref,
+            max_iter,
+            eps,
+            damping,
+        )
+        .map_err(|_| Status::AlgoFailed)?;
+
+        q_out.copy_from_slice(&result.q);
+        if !converged_out.is_null() {
+            unsafe {
+                *converged_out = if result.converged { 1 } else { 0 };
+            }
+        }
+        if !err_out.is_null() {
+            unsafe {
+                *err_out = result.err;
+            }
+        }
+        Ok(())
+    }) as i32
+}

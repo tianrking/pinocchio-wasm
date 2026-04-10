@@ -84,11 +84,107 @@ export async function loadPinocchioWasm(wasmBytes) {
     w.pino_workspace_free(ws);
   }
 
+  /**
+   * Full SE(3) inverse kinematics.
+   * @param {number} model - Model handle
+   * @param {number} ws - Workspace handle
+   * @param {Float64Array|number[]} qInit - Initial joint angles
+   * @param {number} targetLink - Target link index
+   * @param {number[]} targetPos - [x, y, z] target position
+   * @param {number[]} targetRot - 9-element row-major rotation matrix
+   * @param {number} [maxIter=200]
+   * @param {number} [eps=1e-6]
+   * @param {number} [damping=1e-4]
+   * @returns {{ q: number[], converged: boolean, err: number }}
+   */
+  function inverseKinematics(model, ws, qInit, targetLink, targetPos, targetRot,
+                             maxIter = 200, eps = 1e-6, damping = 1e-4) {
+    const nq = Number(w.pino_model_nq(model));
+    if (qInit.length !== nq) throw new Error(`qInit length ${qInit.length} !== nq ${nq}`);
+    if (targetPos.length !== 3) throw new Error("targetPos must have 3 elements");
+    if (targetRot.length !== 9) throw new Error("targetRot must have 9 elements (row-major 3x3)");
+
+    const qMem = writeF64Array(qInit);
+    const posMem = writeF64Array(targetPos);
+    const rotMem = writeF64Array(targetRot);
+    const outMem = writeF64Array(new Float64Array(nq));
+    const convergedMem = writeF64Array(new Float64Array(1));
+    const errMem = writeF64Array(new Float64Array(1));
+
+    const code = w.pino_inverse_kinematics(
+      model, ws, qMem.ptr, targetLink,
+      posMem.ptr, rotMem.ptr,
+      maxIter, eps, damping,
+      outMem.ptr, convergedMem.ptr, errMem.ptr
+    );
+    if (code !== 0) throw new Error(`pino_inverse_kinematics failed: ${code}`);
+
+    const q = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const converged = memoryI32()[convergedMem.ptr / 4] !== 0;
+    const err = memoryF64()[errMem.ptr / 8];
+
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(posMem.ptr, posMem.bytes);
+    freeBytes(rotMem.ptr, rotMem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    freeBytes(convergedMem.ptr, convergedMem.bytes);
+    freeBytes(errMem.ptr, errMem.bytes);
+
+    return { q, converged, err };
+  }
+
+  /**
+   * Position-only inverse kinematics.
+   * @param {number} model - Model handle
+   * @param {number} ws - Workspace handle
+   * @param {Float64Array|number[]} qInit - Initial joint angles
+   * @param {number} targetLink - Target link index
+   * @param {number[]} targetPos - [x, y, z] target position
+   * @param {number} [maxIter=200]
+   * @param {number} [eps=1e-6]
+   * @param {number} [damping=1e-4]
+   * @returns {{ q: number[], converged: boolean, err: number }}
+   */
+  function inverseKinematicsPosition(model, ws, qInit, targetLink, targetPos,
+                                      maxIter = 200, eps = 1e-6, damping = 1e-4) {
+    const nq = Number(w.pino_model_nq(model));
+    if (qInit.length !== nq) throw new Error(`qInit length ${qInit.length} !== nq ${nq}`);
+    if (targetPos.length !== 3) throw new Error("targetPos must have 3 elements");
+
+    const qMem = writeF64Array(qInit);
+    const posMem = writeF64Array(targetPos);
+    const outMem = writeF64Array(new Float64Array(nq));
+    const convergedMem = writeF64Array(new Float64Array(1));
+    const errMem = writeF64Array(new Float64Array(1));
+
+    const code = w.pino_inverse_kinematics_position(
+      model, ws, qMem.ptr, targetLink,
+      posMem.ptr,
+      maxIter, eps, damping,
+      outMem.ptr, convergedMem.ptr, errMem.ptr
+    );
+    if (code !== 0) throw new Error(`pino_inverse_kinematics_position failed: ${code}`);
+
+    const q = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const converged = memoryI32()[convergedMem.ptr / 4] !== 0;
+    const err = memoryF64()[errMem.ptr / 8];
+
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(posMem.ptr, posMem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    freeBytes(convergedMem.ptr, convergedMem.bytes);
+    freeBytes(errMem.ptr, errMem.bytes);
+
+    return { q, converged, err };
+  }
+
   return {
     exports: w,
     createModelFromJson,
     newWorkspace,
     aba,
+    inverseKinematics,
+    inverseKinematicsPosition,
     disposeModel,
     disposeWorkspace,
     allocBytes,

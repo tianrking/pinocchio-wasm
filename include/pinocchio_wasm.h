@@ -172,6 +172,35 @@ int32_t pino_collision_min_distance_detailed_batch(
     double *distances_out,
     double *penetration_out);
 
+/* ── Inverse Kinematics ────────────────────────────────────────────────── */
+
+int32_t pino_inverse_kinematics(
+    const void *model,
+    void *ws,
+    const double *q_init,
+    size_t target_link,
+    const double *target_pos_xyz,
+    const double *target_rot_row_major,
+    size_t max_iter,
+    double eps,
+    double damping,
+    double *q_out,
+    int32_t *converged_out,
+    double *err_out);
+
+int32_t pino_inverse_kinematics_position(
+    const void *model,
+    void *ws,
+    const double *q_init,
+    size_t target_link,
+    const double *target_pos_xyz,
+    size_t max_iter,
+    double eps,
+    double damping,
+    double *q_out,
+    int32_t *converged_out,
+    double *err_out);
+
 #ifdef __cplusplus
 }
 #endif
