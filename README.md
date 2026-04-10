@@ -101,6 +101,12 @@ node examples/js/node_demo.mjs
   - `pino_centroidal_momentum_rate`
   - `pino_centroidal_full_terms`
   - `pino_centroidal_full_terms_with_contacts`
+  - `pino_inverse_dynamics_regressor`
+  - `pino_inverse_dynamics_regressor_batch`
+  - `pino_kinetic_energy_regressor`
+  - `pino_potential_energy_regressor`
+  - `pino_center_of_mass_regressor`
+  - `pino_regressor_select_independent_columns`
 - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`, `pino_model_create_from_mjcf`
 - model export: `pino_model_to_json` (buffer released via `pino_dealloc`)
 - model export: `pino_model_to_json`, `pino_model_to_urdf`, `pino_model_to_sdf`, `pino_model_to_mjcf` (buffer released via `pino_dealloc`)

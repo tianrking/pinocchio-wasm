@@ -373,6 +373,49 @@ int32_t pino_centroidal_full_terms_with_contacts(
     double *hdot_out_6,
     double *contact_wrench_out_6);
 
+int32_t pino_inverse_dynamics_regressor(
+    const void *model,
+    const double *q,
+    const double *qd,
+    const double *qdd,
+    const double *gravity_xyz,
+    double *regressor_out_row_major);
+
+int32_t pino_inverse_dynamics_regressor_batch(
+    const void *model,
+    const double *q_batch,
+    const double *qd_batch,
+    const double *qdd_batch,
+    size_t batch_size,
+    const double *gravity_xyz,
+    double *regressor_out_row_major);
+
+int32_t pino_kinetic_energy_regressor(
+    const void *model,
+    const double *q,
+    const double *qd,
+    double *regressor_out);
+
+int32_t pino_potential_energy_regressor(
+    const void *model,
+    const double *q,
+    const double *gravity_xyz,
+    double *regressor_out);
+
+int32_t pino_center_of_mass_regressor(
+    const void *model,
+    const double *q,
+    double *regressor_out_3xp);
+
+int32_t pino_regressor_select_independent_columns(
+    const double *regressor_row_major,
+    size_t rows,
+    size_t cols,
+    double tolerance,
+    size_t *out_selected_count,
+    size_t *out_selected_indices,
+    double *out_projected_row_major);
+
 #ifdef __cplusplus
 }
 #endif
