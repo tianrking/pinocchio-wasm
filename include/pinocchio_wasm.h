@@ -252,6 +252,21 @@ int32_t pino_collision_min_distance_detailed_batch(
     double *distances_out,
     double *penetration_out);
 
+int32_t pino_collision_query_details(
+    const void *model,
+    const void *collision,
+    void *ws,
+    const double *q,
+    size_t max_results,
+    size_t *out_result_count,
+    int32_t *pair_out_i32x2_flat,
+    double *distance_out,
+    double *normal_out_xyz_flat,
+    double *point_a_out_xyz_flat,
+    double *point_b_out_xyz_flat,
+    double *penetration_out,
+    int32_t *is_colliding_out_i32);
+
 int32_t pino_compute_all_terms(
     const void *model,
     void *ws,

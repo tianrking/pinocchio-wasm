@@ -83,6 +83,7 @@ node examples/js/node_demo.mjs
   - `pino_collision_min_distance_detailed`
   - `pino_collision_min_distance_batch`
   - `pino_collision_min_distance_detailed_batch`
+  - `pino_collision_query_details`
   - `pino_crba`
   - `pino_frame_jacobian`
   - `pino_center_of_mass`

@@ -2,7 +2,8 @@ use pinocchio_wasm::ffi::{
     pino_collision_min_distance, pino_collision_min_distance_batch,
     pino_collision_min_distance_detailed, pino_collision_min_distance_detailed_batch,
     pino_collision_model_create, pino_collision_model_create_geometries, pino_collision_model_free,
-    pino_model_create_from_json, pino_model_free, pino_workspace_free, pino_workspace_new,
+    pino_collision_query_details, pino_model_create_from_json, pino_model_free, pino_workspace_free,
+    pino_workspace_new,
 };
 
 #[test]
@@ -134,6 +135,34 @@ fn ffi_collision_distance_smoke() {
     let s = pino_collision_min_distance(model, coll2, ws, q.as_ptr(), &mut d2, p2.as_mut_ptr());
     assert_eq!(s, 0);
     assert!(d2.is_finite());
+
+    let mut count = 0usize;
+    let mut pairs_flat = [0_i32; 16];
+    let mut dist = [0.0_f64; 8];
+    let mut normal_flat = [0.0_f64; 24];
+    let mut pa_flat = [0.0_f64; 24];
+    let mut pb_flat = [0.0_f64; 24];
+    let mut pen = [0.0_f64; 8];
+    let mut colliding = [0_i32; 8];
+    let s = pino_collision_query_details(
+        model,
+        coll2,
+        ws,
+        q.as_ptr(),
+        8,
+        &mut count,
+        pairs_flat.as_mut_ptr(),
+        dist.as_mut_ptr(),
+        normal_flat.as_mut_ptr(),
+        pa_flat.as_mut_ptr(),
+        pb_flat.as_mut_ptr(),
+        pen.as_mut_ptr(),
+        colliding.as_mut_ptr(),
+    );
+    assert_eq!(s, 0);
+    assert!(count > 0);
+    assert!(dist[..count].iter().all(|x| x.is_finite()));
+    assert!(pen[..count].iter().all(|x| *x >= 0.0));
     pino_collision_model_free(coll2);
     pino_workspace_free(ws);
     pino_model_free(model);
