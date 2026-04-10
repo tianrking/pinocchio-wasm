@@ -9,6 +9,9 @@ A modern WASM-oriented rigid-body dynamics engine inspired by Pinocchio.
   - `model`: tree model, reusable `Workspace`, JSON/URDF/SDF/MJCF loaders (`Model::from_json_str`, `Model::from_urdf_str`, `Model::from_sdf_str`, `Model::from_mjcf_str`)
   - `algo`: FK, Jacobian, RNEA, CRBA, ABA, compute-all-terms, CoM, kinetic/potential energy, contact-constrained dynamics (normal+friction), impulse solve (normal+friction), contact normal Jacobian
   - `collision`: multi-geometry (`sphere/box/capsule/cylinder/mesh-approx`) with broadphase + pair filtering + structured distance/collision outputs
+  - `autodiff`: lightweight dual numbers + finite-difference Jacobian helper
+  - `codegen`: small C/JS code generation helpers
+  - `visualization`: model ASCII tree visualization helper
   - `ffi`: stable C ABI for WASM/JS embedding
 - Efficient data path:
   - contiguous numeric arrays across FFI
@@ -96,6 +99,7 @@ node examples/js/node_demo.mjs
 ## SDK Helper
 
 - JS helper SDK: `js/pinocchio_wasm.mjs`
+- Python ctypes helper: `bindings/python/pinocchio_wasm.py`
 - C header for embedding: `include/pinocchio_wasm.h`
 
 All algorithm APIs are pointer + length driven and return status code (`0` means success).

@@ -1817,3 +1817,556 @@ pub fn apply_contact_impulses_friction_batch(
     }
     Ok(())
 }
+
+#[derive(Debug, Clone)]
+pub struct DerivativeResult {
+    pub d_out_dq: Vec<Vec<f64>>,
+    pub d_out_dv: Vec<Vec<f64>>,
+    pub d_out_du: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct KinematicsDerivativesResult {
+    pub dpos_dq: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameDerivativesResult {
+    pub dframe_dq: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CentroidalMomentum {
+    pub linear: Vec3,
+    pub angular: Vec3,
+    pub com: Vec3,
+    pub total_mass: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CentroidalDerivativesResult {
+    pub d_h_dq: Vec<Vec<f64>>,
+    pub d_h_dqd: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContactLinearProblem {
+    pub delassus: Vec<Vec<f64>>,
+    pub rhs: Vec<f64>,
+}
+
+pub fn integrate_configuration(q: &[f64], v: &[f64], dt: f64) -> Result<Vec<f64>> {
+    if q.len() != v.len() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: q.len(),
+            got: v.len(),
+        });
+    }
+    if dt <= 0.0 {
+        return Err(PinocchioError::InvalidModel("dt must be > 0"));
+    }
+    let mut out = vec![0.0; q.len()];
+    for i in 0..q.len() {
+        out[i] = q[i] + v[i] * dt;
+    }
+    Ok(out)
+}
+
+pub fn difference_configuration(q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
+    if q0.len() != q1.len() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: q0.len(),
+            got: q1.len(),
+        });
+    }
+    Ok(q1.iter().zip(q0.iter()).map(|(a, b)| a - b).collect())
+}
+
+pub fn interpolate_configuration(q0: &[f64], q1: &[f64], alpha: f64) -> Result<Vec<f64>> {
+    if !(0.0..=1.0).contains(&alpha) {
+        return Err(PinocchioError::InvalidModel("alpha must be in [0,1]"));
+    }
+    if q0.len() != q1.len() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: q0.len(),
+            got: q1.len(),
+        });
+    }
+    Ok(q0
+        .iter()
+        .zip(q1.iter())
+        .map(|(a, b)| (1.0 - alpha) * a + alpha * b)
+        .collect())
+}
+
+fn lcg_next_u64(state: &mut u64) -> u64 {
+    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+    *state
+}
+
+pub fn random_configuration(
+    lower: &[f64],
+    upper: &[f64],
+    seed: u64,
+) -> Result<Vec<f64>> {
+    if lower.len() != upper.len() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: lower.len(),
+            got: upper.len(),
+        });
+    }
+    let mut st = seed;
+    let mut out = vec![0.0; lower.len()];
+    for i in 0..lower.len() {
+        if upper[i] < lower[i] {
+            return Err(PinocchioError::InvalidModel("upper bound must be >= lower bound"));
+        }
+        let r = (lcg_next_u64(&mut st) as f64) / (u64::MAX as f64);
+        out[i] = lower[i] + r * (upper[i] - lower[i]);
+    }
+    Ok(out)
+}
+
+pub fn centroidal_momentum(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    ws: &mut Workspace,
+) -> Result<CentroidalMomentum> {
+    let n = model.nv();
+    let qdd = vec![0.0; n];
+    forward_kinematics(model, q, qd, &qdd, Vec3::zero(), ws)?;
+    let com = center_of_mass(model, q, ws)?;
+
+    let mut linear = Vec3::zero();
+    let mut angular = Vec3::zero();
+    let mut total_mass = 0.0;
+    for link_idx in 0..model.nlinks() {
+        let link = &model.links[link_idx];
+        let pose = ws.world_pose[link_idx];
+        let r_com_local = pose.rotation.mul_vec(link.com_local);
+        let p_com_world = pose.translation + r_com_local;
+        let v_com = ws.vel_origin[link_idx] + ws.omega[link_idx].cross(r_com_local);
+        let p = v_com * link.mass;
+        linear += p;
+
+        let i_world = pose
+            .rotation
+            .mul_mat(link.inertia_local_com)
+            .mul_mat(pose.rotation.transpose());
+        let h_rot = i_world.mul_vec(ws.omega[link_idx]);
+        angular += h_rot + (p_com_world - com).cross(p);
+        total_mass += link.mass;
+    }
+
+    Ok(CentroidalMomentum {
+        linear,
+        angular,
+        com,
+        total_mass,
+    })
+}
+
+pub fn centroidal_map(
+    model: &Model,
+    q: &[f64],
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    model.check_state_dims(q, &vec![0.0; n], None)?;
+    let mut out = vec![0.0; 6 * n];
+    for j in 0..n {
+        let mut qd = vec![0.0; n];
+        qd[j] = 1.0;
+        let h = centroidal_momentum(model, q, &qd, ws)?;
+        out[j] = h.linear.x;
+        out[n + j] = h.linear.y;
+        out[2 * n + j] = h.linear.z;
+        out[3 * n + j] = h.angular.x;
+        out[4 * n + j] = h.angular.y;
+        out[5 * n + j] = h.angular.z;
+    }
+    Ok(out)
+}
+
+pub fn centroidal_derivatives(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    ws: &mut Workspace,
+) -> Result<CentroidalDerivativesResult> {
+    let n = model.nv();
+    let eps = 1e-6;
+    let mut d_h_dq = vec![vec![0.0; n]; 6];
+    let mut d_h_dqd = vec![vec![0.0; n]; 6];
+
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let hp = centroidal_momentum(model, &qp, qd, ws)?;
+        let hm = centroidal_momentum(model, &qm, qd, ws)?;
+        d_h_dq[0][i] = (hp.linear.x - hm.linear.x) / (2.0 * eps);
+        d_h_dq[1][i] = (hp.linear.y - hm.linear.y) / (2.0 * eps);
+        d_h_dq[2][i] = (hp.linear.z - hm.linear.z) / (2.0 * eps);
+        d_h_dq[3][i] = (hp.angular.x - hm.angular.x) / (2.0 * eps);
+        d_h_dq[4][i] = (hp.angular.y - hm.angular.y) / (2.0 * eps);
+        d_h_dq[5][i] = (hp.angular.z - hm.angular.z) / (2.0 * eps);
+
+        let mut qdp = qd.to_vec();
+        let mut qdm = qd.to_vec();
+        qdp[i] += eps;
+        qdm[i] -= eps;
+        let hpv = centroidal_momentum(model, q, &qdp, ws)?;
+        let hmv = centroidal_momentum(model, q, &qdm, ws)?;
+        d_h_dqd[0][i] = (hpv.linear.x - hmv.linear.x) / (2.0 * eps);
+        d_h_dqd[1][i] = (hpv.linear.y - hmv.linear.y) / (2.0 * eps);
+        d_h_dqd[2][i] = (hpv.linear.z - hmv.linear.z) / (2.0 * eps);
+        d_h_dqd[3][i] = (hpv.angular.x - hmv.angular.x) / (2.0 * eps);
+        d_h_dqd[4][i] = (hpv.angular.y - hmv.angular.y) / (2.0 * eps);
+        d_h_dqd[5][i] = (hpv.angular.z - hmv.angular.z) / (2.0 * eps);
+    }
+
+    Ok(CentroidalDerivativesResult { d_h_dq, d_h_dqd })
+}
+
+pub fn rnea_derivatives(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<DerivativeResult> {
+    let n = model.nv();
+    model.check_state_dims(q, qd, Some(qdd))?;
+    let eps = 1e-6;
+    let mut d_tau_dq = vec![vec![0.0; n]; n];
+    let mut d_tau_dqd = vec![vec![0.0; n]; n];
+    let mut d_tau_dqdd = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let tp = rnea(model, &qp, qd, qdd, gravity, ws)?;
+        let tm = rnea(model, &qm, qd, qdd, gravity, ws)?;
+        for r in 0..n {
+            d_tau_dq[r][i] = (tp[r] - tm[r]) / (2.0 * eps);
+        }
+
+        let mut v_p = qd.to_vec();
+        let mut v_m = qd.to_vec();
+        v_p[i] += eps;
+        v_m[i] -= eps;
+        let tp = rnea(model, q, &v_p, qdd, gravity, ws)?;
+        let tm = rnea(model, q, &v_m, qdd, gravity, ws)?;
+        for r in 0..n {
+            d_tau_dqd[r][i] = (tp[r] - tm[r]) / (2.0 * eps);
+        }
+
+        let mut a_p = qdd.to_vec();
+        let mut a_m = qdd.to_vec();
+        a_p[i] += eps;
+        a_m[i] -= eps;
+        let tp = rnea(model, q, qd, &a_p, gravity, ws)?;
+        let tm = rnea(model, q, qd, &a_m, gravity, ws)?;
+        for r in 0..n {
+            d_tau_dqdd[r][i] = (tp[r] - tm[r]) / (2.0 * eps);
+        }
+    }
+    Ok(DerivativeResult {
+        d_out_dq: d_tau_dq,
+        d_out_dv: d_tau_dqd,
+        d_out_du: d_tau_dqdd,
+    })
+}
+
+pub fn aba_derivatives(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    tau: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<DerivativeResult> {
+    let n = model.nv();
+    model.check_state_dims(q, qd, None)?;
+    if tau.len() != n {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: n,
+            got: tau.len(),
+        });
+    }
+    let eps = 1e-6;
+    let mut dqdd_dq = vec![vec![0.0; n]; n];
+    let mut dqdd_dqd = vec![vec![0.0; n]; n];
+    let mut dqdd_dtau = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let ap = aba(model, &qp, qd, tau, gravity, ws)?;
+        let am = aba(model, &qm, qd, tau, gravity, ws)?;
+        for r in 0..n {
+            dqdd_dq[r][i] = (ap[r] - am[r]) / (2.0 * eps);
+        }
+
+        let mut vp = qd.to_vec();
+        let mut vm = qd.to_vec();
+        vp[i] += eps;
+        vm[i] -= eps;
+        let ap = aba(model, q, &vp, tau, gravity, ws)?;
+        let am = aba(model, q, &vm, tau, gravity, ws)?;
+        for r in 0..n {
+            dqdd_dqd[r][i] = (ap[r] - am[r]) / (2.0 * eps);
+        }
+
+        let mut tp = tau.to_vec();
+        let mut tm = tau.to_vec();
+        tp[i] += eps;
+        tm[i] -= eps;
+        let ap = aba(model, q, qd, &tp, gravity, ws)?;
+        let am = aba(model, q, qd, &tm, gravity, ws)?;
+        for r in 0..n {
+            dqdd_dtau[r][i] = (ap[r] - am[r]) / (2.0 * eps);
+        }
+    }
+    Ok(DerivativeResult {
+        d_out_dq: dqdd_dq,
+        d_out_dv: dqdd_dqd,
+        d_out_du: dqdd_dtau,
+    })
+}
+
+pub fn kinematics_derivatives(
+    model: &Model,
+    q: &[f64],
+    target_link: usize,
+    ws: &mut Workspace,
+) -> Result<KinematicsDerivativesResult> {
+    if target_link >= model.nlinks() {
+        return Err(PinocchioError::IndexOutOfBounds {
+            index: target_link,
+            len: model.nlinks(),
+        });
+    }
+    let n = model.nv();
+    let eps = 1e-6;
+    let mut dpos_dq = vec![0.0; 3 * n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let pp = forward_kinematics_poses(model, &qp, ws)?[target_link].translation;
+        let pm = forward_kinematics_poses(model, &qm, ws)?[target_link].translation;
+        dpos_dq[i] = (pp.x - pm.x) / (2.0 * eps);
+        dpos_dq[n + i] = (pp.y - pm.y) / (2.0 * eps);
+        dpos_dq[2 * n + i] = (pp.z - pm.z) / (2.0 * eps);
+    }
+    Ok(KinematicsDerivativesResult { dpos_dq })
+}
+
+pub fn frame_jacobian_derivatives(
+    model: &Model,
+    q: &[f64],
+    target_link: usize,
+    ws: &mut Workspace,
+) -> Result<FrameDerivativesResult> {
+    let n = model.nv();
+    let eps = 1e-6;
+    let mut dframe_dq = vec![0.0; 6 * n * n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let jp = frame_jacobian(model, &qp, target_link, ws)?;
+        let jm = frame_jacobian(model, &qm, target_link, ws)?;
+        for r in 0..(6 * n) {
+            dframe_dq[r * n + i] = (jp[r] - jm[r]) / (2.0 * eps);
+        }
+    }
+    Ok(FrameDerivativesResult { dframe_dq })
+}
+
+pub fn center_of_mass_derivatives(
+    model: &Model,
+    q: &[f64],
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    let eps = 1e-6;
+    let mut dcom_dq = vec![0.0; 3 * n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let cp = center_of_mass(model, &qp, ws)?;
+        let cm = center_of_mass(model, &qm, ws)?;
+        dcom_dq[i] = (cp.x - cm.x) / (2.0 * eps);
+        dcom_dq[n + i] = (cp.y - cm.y) / (2.0 * eps);
+        dcom_dq[2 * n + i] = (cp.z - cm.z) / (2.0 * eps);
+    }
+    Ok(dcom_dq)
+}
+
+fn inertial_params_of_link(model: &Model, link_idx: usize) -> [f64; 10] {
+    let l = &model.links[link_idx];
+    [
+        l.mass,
+        l.mass * l.com_local.x,
+        l.mass * l.com_local.y,
+        l.mass * l.com_local.z,
+        l.inertia_local_com.m[0][0],
+        l.inertia_local_com.m[1][1],
+        l.inertia_local_com.m[2][2],
+        l.inertia_local_com.m[0][1],
+        l.inertia_local_com.m[0][2],
+        l.inertia_local_com.m[1][2],
+    ]
+}
+
+fn set_inertial_params_of_link(model: &mut Model, link_idx: usize, p: [f64; 10]) {
+    let mass = p[0].max(1e-6);
+    model.links[link_idx].mass = mass;
+    model.links[link_idx].com_local = Vec3::new(p[1] / mass, p[2] / mass, p[3] / mass);
+    model.links[link_idx].inertia_local_com = Mat3::new([
+        [p[4], p[7], p[8]],
+        [p[7], p[5], p[9]],
+        [p[8], p[9], p[6]],
+    ]);
+}
+
+pub fn inverse_dynamics_regressor(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    gravity: Vec3,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    model.check_state_dims(q, qd, Some(qdd))?;
+    let p = 10 * model.nlinks();
+    let mut y = vec![0.0; n * p];
+    let eps = 1e-6;
+    for link_idx in 0..model.nlinks() {
+        let base_param = inertial_params_of_link(model, link_idx);
+        for k in 0..10 {
+            let mut plus = model.clone();
+            let mut minus = model.clone();
+            let mut p_plus = base_param;
+            let mut p_minus = base_param;
+            p_plus[k] += eps;
+            p_minus[k] -= eps;
+            set_inertial_params_of_link(&mut plus, link_idx, p_plus);
+            set_inertial_params_of_link(&mut minus, link_idx, p_minus);
+            let mut ws_plus = Workspace::new(&plus);
+            let mut ws_minus = Workspace::new(&minus);
+            let tau_plus = rnea(&plus, q, qd, qdd, gravity, &mut ws_plus)?;
+            let tau_minus = rnea(&minus, q, qd, qdd, gravity, &mut ws_minus)?;
+            let col = link_idx * 10 + k;
+            for row in 0..n {
+                y[row * p + col] = (tau_plus[row] - tau_minus[row]) / (2.0 * eps);
+            }
+        }
+    }
+    Ok(y)
+}
+
+pub fn build_delassus_matrix(
+    model: &Model,
+    q: &[f64],
+    contacts: &[ContactPoint],
+    ws: &mut Workspace,
+) -> Result<Vec<Vec<f64>>> {
+    let n = model.nv();
+    let k = contacts.len();
+    let j = contact_jacobian_normal(model, q, contacts, ws)?;
+    let mass = crba(model, q, ws)?;
+    let mut j_rows = Vec::with_capacity(k);
+    for i in 0..k {
+        let b = i * n;
+        j_rows.push(j[b..b + n].to_vec());
+    }
+    let minv_jt = solve_m_inv_jt_columns(&mass, &j_rows)?;
+    let mut w = vec![vec![0.0; k]; k];
+    for i in 0..k {
+        for (j, col) in minv_jt.iter().enumerate().take(k) {
+            w[i][j] = j_rows[i]
+                .iter()
+                .zip(col.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>();
+        }
+        w[i][i] += 1e-8;
+    }
+    Ok(w)
+}
+
+pub fn build_contact_problem(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    tau: &[f64],
+    contacts: &[ContactPoint],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<ContactLinearProblem> {
+    let qdd_free = aba(model, q, qd, tau, gravity, ws)?;
+    let n = model.nv();
+    let k = contacts.len();
+    let j = contact_jacobian_normal(model, q, contacts, ws)?;
+    let mut rhs = vec![0.0; k];
+    for i in 0..k {
+        let b = i * n;
+        let mut a = 0.0;
+        for c in 0..n {
+            a += j[b + c] * qdd_free[c];
+        }
+        rhs[i] = -(a + contacts[i].acceleration_bias);
+    }
+    let delassus = build_delassus_matrix(model, q, contacts, ws)?;
+    Ok(ContactLinearProblem { delassus, rhs })
+}
+
+pub fn solve_contact_cholesky(problem: &ContactLinearProblem) -> Result<Vec<f64>> {
+    cholesky_solve(&problem.delassus, &problem.rhs)
+}
+
+pub fn solve_contact_pgs(problem: &ContactLinearProblem, max_iters: usize) -> Vec<f64> {
+    projected_gauss_seidel_nonnegative(&problem.delassus, &problem.rhs, max_iters.max(1))
+}
+
+pub fn solve_contact_admm(
+    problem: &ContactLinearProblem,
+    rho: f64,
+    max_iters: usize,
+) -> Result<Vec<f64>> {
+    let k = problem.rhs.len();
+    if rho <= 0.0 {
+        return Err(PinocchioError::InvalidModel("rho must be > 0"));
+    }
+    let mut z = vec![0.0; k];
+    let mut u = vec![0.0; k];
+    let mut a_rho = problem.delassus.clone();
+    for (i, row) in a_rho.iter_mut().enumerate().take(k) {
+        row[i] += rho;
+    }
+    for _ in 0..max_iters.max(1) {
+        let mut b = vec![0.0; k];
+        for i in 0..k {
+            b[i] = problem.rhs[i] + rho * (z[i] - u[i]);
+        }
+        let x = cholesky_solve(&a_rho, &b)?;
+        for i in 0..k {
+            z[i] = (x[i] + u[i]).max(0.0);
+            u[i] += x[i] - z[i];
+        }
+    }
+    Ok(z)
+}
