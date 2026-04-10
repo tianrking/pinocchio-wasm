@@ -128,6 +128,76 @@ int32_t pino_contact_jacobian_normal(
     const double *contact_normals_xyz,
     double *jac_out_row_major_kxn);
 
+int32_t pino_contact_constrained_dynamics_friction(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *tau,
+    const double *gravity_xyz,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_accel_bias,
+    const double *contact_friction_coeff,
+    double *qdd_out,
+    double *lambda_normal_out,
+    double *lambda_tangent_out_2k,
+    double *force_world_out_3k);
+
+int32_t pino_contact_constrained_dynamics_friction_batch(
+    const void *model,
+    void *ws,
+    const double *q_batch,
+    const double *qd_batch,
+    const double *tau_batch,
+    size_t batch_size,
+    const double *gravity_xyz,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_accel_bias,
+    const double *contact_friction_coeff,
+    double *qdd_out,
+    double *lambda_normal_out,
+    double *lambda_tangent_out_2k,
+    double *force_world_out_3k);
+
+int32_t pino_apply_contact_impulse_friction(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd_minus,
+    double restitution,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_friction_coeff,
+    double *qd_plus_out,
+    double *impulse_normal_out,
+    double *impulse_tangent_out_2k,
+    double *impulse_world_out_3k);
+
+int32_t pino_apply_contact_impulse_friction_batch(
+    const void *model,
+    void *ws,
+    const double *q_batch,
+    const double *qd_minus_batch,
+    size_t batch_size,
+    double restitution,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    const double *contact_friction_coeff,
+    double *qd_plus_out,
+    double *impulse_normal_out,
+    double *impulse_tangent_out_2k,
+    double *impulse_world_out_3k);
+
 void *pino_collision_model_create(
     size_t num_spheres,
     const int32_t *link_indices,
