@@ -281,6 +281,43 @@ int32_t pino_compute_all_terms(
     double *kinetic_out,
     double *potential_out);
 
+int32_t pino_rnea_second_order_derivatives(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *qdd,
+    const double *gravity_xyz,
+    double *d2_tau_dq2_out,
+    double *d2_tau_dqd2_out,
+    double *d2_tau_dqdd2_out);
+
+int32_t pino_constrained_dynamics_derivatives_locked_joints(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *tau,
+    const int32_t *locked_mask_i32,
+    const double *gravity_xyz,
+    double *dqdd_dq_out,
+    double *dqdd_dqd_out,
+    double *dqdd_dtau_out);
+
+int32_t pino_impulse_dynamics_derivatives(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd_minus,
+    double restitution,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    double *dqdplus_dq_out,
+    double *dqdplus_dqdminus_out,
+    double *dqdplus_drestitution_out);
+
 #ifdef __cplusplus
 }
 #endif
