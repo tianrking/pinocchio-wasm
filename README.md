@@ -7,7 +7,7 @@ A modern WASM-oriented rigid-body dynamics engine inspired by Pinocchio.
 - Modern layered architecture:
   - `core`: error model + linear algebra primitives (`Vec3`, `Mat3`, `Transform`)
   - `model`: tree model, reusable `Workspace`, JSON/URDF/SDF/MJCF loaders (`Model::from_json_str`, `Model::from_urdf_str`, `Model::from_sdf_str`, `Model::from_mjcf_str`)
-  - `algo`: FK, Jacobian, RNEA, CRBA, ABA, CoM, kinetic/potential energy, contact-constrained dynamics, impulse solve
+  - `algo`: FK, Jacobian, RNEA, CRBA, ABA, compute-all-terms, CoM, kinetic/potential energy, contact-constrained dynamics, impulse solve, contact normal Jacobian
   - `collision`: multi-geometry (`sphere/box/capsule/cylinder/mesh-approx`) with broadphase + pair filtering + structured distance/collision outputs
   - `ffi`: stable C ABI for WASM/JS embedding
 - Efficient data path:
@@ -69,6 +69,7 @@ node examples/js/node_demo.mjs
   - `pino_contact_constrained_dynamics_batch`
   - `pino_apply_contact_impulse`
   - `pino_apply_contact_impulse_batch`
+  - `pino_contact_jacobian_normal`
   - `pino_rollout_aba_euler`
   - `pino_forward_kinematics_poses`
   - `pino_forward_kinematics_poses_batch`
@@ -82,6 +83,7 @@ node examples/js/node_demo.mjs
   - `pino_frame_jacobian`
   - `pino_center_of_mass`
   - `pino_energy`
+  - `pino_compute_all_terms`
 - model import: `pino_model_create_from_json`, `pino_model_create_from_urdf`, `pino_model_create_from_sdf`, `pino_model_create_from_mjcf`
 - model export: `pino_model_to_json` (buffer released via `pino_dealloc`)
 - model export: `pino_model_to_json`, `pino_model_to_urdf`, `pino_model_to_sdf`, `pino_model_to_mjcf` (buffer released via `pino_dealloc`)

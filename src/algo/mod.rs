@@ -864,6 +864,17 @@ pub struct ContactImpulseResult {
     pub contact_impulses_world: Vec<Vec3>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AllTermsResult {
+    pub mass: Vec<Vec<f64>>,
+    pub bias: Vec<f64>,
+    pub gravity_torques: Vec<f64>,
+    pub coriolis_torques: Vec<f64>,
+    pub com: Vec3,
+    pub kinetic_energy: f64,
+    pub potential_energy: f64,
+}
+
 fn contact_jacobian_row(
     model: &Model,
     ws: &Workspace,
@@ -897,6 +908,52 @@ fn contact_jacobian_row(
         *cell = normal.dot(lin);
     }
     Ok(jrow)
+}
+
+pub fn contact_jacobian_normal(
+    model: &Model,
+    q: &[f64],
+    contacts: &[ContactPoint],
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    let qd = vec![0.0; n];
+    let qdd = vec![0.0; n];
+    forward_kinematics(model, q, &qd, &qdd, Vec3::zero(), ws)?;
+
+    let k = contacts.len();
+    let mut out = vec![0.0; k * n];
+    for (i, c) in contacts.iter().copied().enumerate() {
+        let row = contact_jacobian_row(model, ws, c)?;
+        let base = i * n;
+        out[base..base + n].copy_from_slice(&row);
+    }
+    Ok(out)
+}
+
+pub fn compute_all_terms(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<AllTermsResult> {
+    let mass = crba(model, q, ws)?;
+    let bias = bias_forces(model, q, qd, gravity, ws)?;
+    let gravity_t = gravity_torques(model, q, gravity, ws)?;
+    let coriolis_t = coriolis_torques(model, q, qd, ws)?;
+    let com = center_of_mass(model, q, ws)?;
+    let kinetic = kinetic_energy(model, q, qd, ws)?;
+    let potential = potential_energy(model, q, gravity, ws)?;
+    Ok(AllTermsResult {
+        mass,
+        bias,
+        gravity_torques: gravity_t,
+        coriolis_torques: coriolis_t,
+        com,
+        kinetic_energy: kinetic,
+        potential_energy: potential,
+    })
 }
 
 fn solve_m_inv_jt_columns(mass: &[Vec<f64>], jrows: &[Vec<f64>]) -> Result<Vec<Vec<f64>>> {

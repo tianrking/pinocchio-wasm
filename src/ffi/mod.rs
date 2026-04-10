@@ -1054,6 +1054,41 @@ pub extern "C" fn pino_apply_contact_impulse_batch(
     }) as i32
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_contact_jacobian_normal(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    num_contacts: usize,
+    contact_link_indices_i32: *const i32,
+    contact_points_xyz: *const f64,
+    contact_normals_xyz: *const f64,
+    jac_out_row_major_kxn: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let jac_out = unsafe { as_mut_slice(jac_out_row_major_kxn, num_contacts * n)? };
+        let zero_bias = vec![0.0; num_contacts];
+        let contacts = parse_contacts(
+            num_contacts,
+            contact_link_indices_i32,
+            contact_points_xyz,
+            contact_normals_xyz,
+            zero_bias.as_ptr(),
+        )?;
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let jac = algo::contact_jacobian_normal(model_ref, q, &contacts, ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        jac_out.copy_from_slice(&jac);
+        Ok(())
+    }) as i32
+}
+
 const GEO_SPHERE: i32 = 0;
 const GEO_BOX: i32 = 1;
 const GEO_CAPSULE: i32 = 2;
@@ -1551,6 +1586,62 @@ pub extern "C" fn pino_energy(
         unsafe {
             *kinetic_out = ke;
             *potential_out = pe;
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_compute_all_terms(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    gravity_xyz: *const f64,
+    mass_out_row_major: *mut f64,
+    bias_out: *mut f64,
+    gravity_out: *mut f64,
+    coriolis_out: *mut f64,
+    com_out_xyz: *mut f64,
+    kinetic_out: *mut f64,
+    potential_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+        if kinetic_out.is_null() || potential_out.is_null() {
+            return Err(Status::NullPtr);
+        }
+
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let mass_out = unsafe { as_mut_slice(mass_out_row_major, n * n)? };
+        let bias_out = unsafe { as_mut_slice(bias_out, n)? };
+        let gravity_out = unsafe { as_mut_slice(gravity_out, n)? };
+        let coriolis_out = unsafe { as_mut_slice(coriolis_out, n)? };
+        let com_out = unsafe { as_mut_slice(com_out_xyz, 3)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let terms = algo::compute_all_terms(model_ref, q, qd, Vec3::new(g[0], g[1], g[2]), ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+
+        for r in 0..n {
+            for c in 0..n {
+                mass_out[r * n + c] = terms.mass[r][c];
+            }
+        }
+        bias_out.copy_from_slice(&terms.bias);
+        gravity_out.copy_from_slice(&terms.gravity_torques);
+        coriolis_out.copy_from_slice(&terms.coriolis_torques);
+        com_out[0] = terms.com.x;
+        com_out[1] = terms.com.y;
+        com_out[2] = terms.com.z;
+        unsafe {
+            *kinetic_out = terms.kinetic_energy;
+            *potential_out = terms.potential_energy;
         }
         Ok(())
     }) as i32

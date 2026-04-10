@@ -118,6 +118,16 @@ int32_t pino_apply_contact_impulse_batch(
     double *qd_plus_out,
     double *impulse_out);
 
+int32_t pino_contact_jacobian_normal(
+    const void *model,
+    void *ws,
+    const double *q,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_normals_xyz,
+    double *jac_out_row_major_kxn);
+
 void *pino_collision_model_create(
     size_t num_spheres,
     const int32_t *link_indices,
@@ -171,6 +181,20 @@ int32_t pino_collision_min_distance_detailed_batch(
     size_t batch_size,
     double *distances_out,
     double *penetration_out);
+
+int32_t pino_compute_all_terms(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *gravity_xyz,
+    double *mass_out_row_major,
+    double *bias_out,
+    double *gravity_out,
+    double *coriolis_out,
+    double *com_out_xyz,
+    double *kinetic_out,
+    double *potential_out);
 
 #ifdef __cplusplus
 }
