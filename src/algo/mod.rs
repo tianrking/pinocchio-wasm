@@ -1849,6 +1849,20 @@ pub struct CentroidalDerivativesResult {
     pub d_h_dqd: Vec<Vec<f64>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SpatialVec6 {
+    pub linear: Vec3,
+    pub angular: Vec3,
+}
+
+#[derive(Debug, Clone)]
+pub struct CentroidalFullResult {
+    pub ag: Vec<f64>,
+    pub dag_dq: Vec<f64>,
+    pub momentum: SpatialVec6,
+    pub momentum_rate: SpatialVec6,
+}
+
 #[derive(Debug, Clone)]
 pub struct ContactLinearProblem {
     pub delassus: Vec<Vec<f64>>,
@@ -2043,6 +2057,127 @@ pub fn centroidal_derivatives(
     }
 
     Ok(CentroidalDerivativesResult { d_h_dq, d_h_dqd })
+}
+
+pub fn centroidal_map_derivatives(
+    model: &Model,
+    q: &[f64],
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    model.check_state_dims(q, &vec![0.0; n], None)?;
+    let eps = 1e-6;
+    let mut out = vec![0.0; (6 * n) * n];
+    for i in 0..n {
+        let mut qp = q.to_vec();
+        let mut qm = q.to_vec();
+        qp[i] += eps;
+        qm[i] -= eps;
+        let ap = centroidal_map(model, &qp, ws)?;
+        let am = centroidal_map(model, &qm, ws)?;
+        for r in 0..(6 * n) {
+            out[r * n + i] = (ap[r] - am[r]) / (2.0 * eps);
+        }
+    }
+    Ok(out)
+}
+
+pub fn centroidal_momentum_rate(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    ws: &mut Workspace,
+) -> Result<SpatialVec6> {
+    let n = model.nv();
+    model.check_state_dims(q, qd, Some(qdd))?;
+    let dt = 1e-6;
+    let h0 = centroidal_momentum(model, q, qd, ws)?;
+    let mut q1 = q.to_vec();
+    let mut qd1 = qd.to_vec();
+    for i in 0..n {
+        q1[i] += qd[i] * dt;
+        qd1[i] += qdd[i] * dt;
+    }
+    let h1 = centroidal_momentum(model, &q1, &qd1, ws)?;
+    Ok(SpatialVec6 {
+        linear: (h1.linear - h0.linear) * (1.0 / dt),
+        angular: (h1.angular - h0.angular) * (1.0 / dt),
+    })
+}
+
+pub fn centroidal_contact_wrench(
+    model: &Model,
+    q: &[f64],
+    contacts: &[ContactPoint],
+    contact_forces_world: &[Vec3],
+    ws: &mut Workspace,
+) -> Result<SpatialVec6> {
+    if contacts.len() != contact_forces_world.len() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: contacts.len(),
+            got: contact_forces_world.len(),
+        });
+    }
+    let n = model.nv();
+    let qd = vec![0.0; n];
+    let qdd = vec![0.0; n];
+    forward_kinematics(model, q, &qd, &qdd, Vec3::zero(), ws)?;
+    let com = center_of_mass(model, q, ws)?;
+
+    let mut f = Vec3::zero();
+    let mut n_m = Vec3::zero();
+    for (c, fw) in contacts.iter().zip(contact_forces_world.iter()) {
+        if c.link_index >= model.nlinks() {
+            return Err(PinocchioError::IndexOutOfBounds {
+                index: c.link_index,
+                len: model.nlinks(),
+            });
+        }
+        let p = ws.world_pose[c.link_index].transform_point(c.point_local);
+        f += *fw;
+        n_m += (p - com).cross(*fw);
+    }
+    Ok(SpatialVec6 {
+        linear: f,
+        angular: n_m,
+    })
+}
+
+pub fn centroidal_full_terms(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    ws: &mut Workspace,
+) -> Result<CentroidalFullResult> {
+    let ag = centroidal_map(model, q, ws)?;
+    let dag_dq = centroidal_map_derivatives(model, q, ws)?;
+    let h = centroidal_momentum(model, q, qd, ws)?;
+    let hdot = centroidal_momentum_rate(model, q, qd, qdd, ws)?;
+    Ok(CentroidalFullResult {
+        ag,
+        dag_dq,
+        momentum: SpatialVec6 {
+            linear: h.linear,
+            angular: h.angular,
+        },
+        momentum_rate: hdot,
+    })
+}
+
+pub fn centroidal_full_terms_with_contacts(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    contacts: &[ContactPoint],
+    contact_forces_world: &[Vec3],
+    ws: &mut Workspace,
+) -> Result<(CentroidalFullResult, SpatialVec6)> {
+    let full = centroidal_full_terms(model, q, qd, qdd, ws)?;
+    let w = centroidal_contact_wrench(model, q, contacts, contact_forces_world, ws)?;
+    Ok((full, w))
 }
 
 pub fn rnea_derivatives(

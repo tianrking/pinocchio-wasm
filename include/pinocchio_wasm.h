@@ -318,6 +318,61 @@ int32_t pino_impulse_dynamics_derivatives(
     double *dqdplus_dqdminus_out,
     double *dqdplus_drestitution_out);
 
+int32_t pino_centroidal_map(
+    const void *model,
+    void *ws,
+    const double *q,
+    double *ag_out_row_major_6xn);
+
+int32_t pino_centroidal_map_derivatives(
+    const void *model,
+    void *ws,
+    const double *q,
+    double *dag_dq_out);
+
+int32_t pino_centroidal_momentum(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    double *momentum_out_6,
+    double *com_out_xyz);
+
+int32_t pino_centroidal_momentum_rate(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *qdd,
+    double *hdot_out_6);
+
+int32_t pino_centroidal_full_terms(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *qdd,
+    double *ag_out_6xn,
+    double *dag_dq_out,
+    double *momentum_out_6,
+    double *hdot_out_6);
+
+int32_t pino_centroidal_full_terms_with_contacts(
+    const void *model,
+    void *ws,
+    const double *q,
+    const double *qd,
+    const double *qdd,
+    size_t num_contacts,
+    const int32_t *contact_link_indices_i32,
+    const double *contact_points_xyz,
+    const double *contact_forces_world_xyz,
+    double *ag_out_6xn,
+    double *dag_dq_out,
+    double *momentum_out_6,
+    double *hdot_out_6,
+    double *contact_wrench_out_6);
+
 #ifdef __cplusplus
 }
 #endif
