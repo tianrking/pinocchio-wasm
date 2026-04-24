@@ -4,6 +4,7 @@ use super::{
     CollisionHandle, ModelHandle, Status, WorkspaceHandle, as_slice, as_str, check_non_null,
     run_status,
 };
+use crate::algo;
 use crate::collision::{self, CollisionModel, Geometry, Sphere};
 use crate::core::math::{Mat3, Vec3};
 use crate::model::{Joint, JointType, Link, Model, Workspace};
@@ -459,4 +460,148 @@ pub extern "C" fn pino_collision_model_create_geometries(
         Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
         _ => ptr::null_mut(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Configuration-space operations
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_neutral_configuration(
+    model: *const ModelHandle,
+    q_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(q_out)?;
+        let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
+        let q = algo::neutral_configuration(model_ref);
+        unsafe {
+            core::ptr::copy_nonoverlapping(q.as_ptr(), q_out, nq);
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_normalize_configuration(
+    model: *const ModelHandle,
+    q_ptr: *const f64,
+    q_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(q_ptr)?;
+        check_non_null(q_out)?;
+        let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
+        let q = unsafe { as_slice(q_ptr, nq)? };
+        let normalized =
+            algo::normalize_configuration(model_ref, q).map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            core::ptr::copy_nonoverlapping(normalized.as_ptr(), q_out, nq);
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_is_normalized(
+    model: *const ModelHandle,
+    q_ptr: *const f64,
+    tol: f64,
+) -> i32 {
+    if model.is_null() || q_ptr.is_null() {
+        return Status::NullPtr as i32;
+    }
+    let model_ref = unsafe { &(*model).model };
+    let nq = model_ref.nq();
+    let q = match unsafe { as_slice(q_ptr, nq) } {
+        Ok(s) => s,
+        Err(_) => return Status::InvalidInput as i32,
+    };
+    match algo::is_normalized(model_ref, q, tol) {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => Status::AlgoFailed as i32,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_difference_configuration(
+    model: *const ModelHandle,
+    q0_ptr: *const f64,
+    q1_ptr: *const f64,
+    dv_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(q0_ptr)?;
+        check_non_null(q1_ptr)?;
+        check_non_null(dv_out)?;
+        let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
+        let nv = model_ref.nv();
+        let q0 = unsafe { as_slice(q0_ptr, nq)? };
+        let q1 = unsafe { as_slice(q1_ptr, nq)? };
+        let dv = algo::difference_configuration(model_ref, q0, q1)
+            .map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            core::ptr::copy_nonoverlapping(dv.as_ptr(), dv_out, nv);
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_interpolate_configuration(
+    model: *const ModelHandle,
+    q0_ptr: *const f64,
+    q1_ptr: *const f64,
+    alpha: f64,
+    q_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(q0_ptr)?;
+        check_non_null(q1_ptr)?;
+        check_non_null(q_out)?;
+        let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
+        let q0 = unsafe { as_slice(q0_ptr, nq)? };
+        let q1 = unsafe { as_slice(q1_ptr, nq)? };
+        let q = algo::interpolate_configuration(model_ref, q0, q1, alpha)
+            .map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            core::ptr::copy_nonoverlapping(q.as_ptr(), q_out, nq);
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_random_configuration(
+    model: *const ModelHandle,
+    lower_ptr: *const f64,
+    upper_ptr: *const f64,
+    seed: u64,
+    q_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(lower_ptr)?;
+        check_non_null(upper_ptr)?;
+        check_non_null(q_out)?;
+        let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
+        let lower = unsafe { as_slice(lower_ptr, nq)? };
+        let upper = unsafe { as_slice(upper_ptr, nq)? };
+        let q = algo::random_configuration(model_ref, lower, upper, seed)
+            .map_err(|_| Status::AlgoFailed)?;
+        unsafe {
+            core::ptr::copy_nonoverlapping(q.as_ptr(), q_out, nq);
+        }
+        Ok(())
+    }) as i32
 }

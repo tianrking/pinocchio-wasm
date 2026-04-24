@@ -2,6 +2,7 @@
 
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
+use crate::core::quaternion::Quat;
 use crate::model::{JointType, Model, Workspace};
 
 use super::dynamics::aba;
@@ -71,39 +72,6 @@ pub fn rollout_aba_euler(
     Ok(())
 }
 
-fn normalize_quat(mut q: [f64; 4]) -> [f64; 4] {
-    let n2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
-    if n2 <= 1e-16 {
-        return [1.0, 0.0, 0.0, 0.0];
-    }
-    let inv = 1.0 / n2.sqrt();
-    for x in &mut q {
-        *x *= inv;
-    }
-    q
-}
-
-fn quat_mul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
-    [
-        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
-        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
-        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
-        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
-    ]
-}
-
-fn delta_quat(wx: f64, wy: f64, wz: f64, dt: f64) -> [f64; 4] {
-    let w = Vec3::new(wx, wy, wz);
-    let angle = w.norm() * dt;
-    if angle <= 1e-12 {
-        return normalize_quat([1.0, 0.5 * wx * dt, 0.5 * wy * dt, 0.5 * wz * dt]);
-    }
-    let axis = w * (1.0 / w.norm());
-    let half = 0.5 * angle;
-    let s = half.sin();
-    [half.cos(), axis.x * s, axis.y * s, axis.z * s]
-}
-
 pub fn integrate_model_configuration(
     model: &Model,
     q: &[f64],
@@ -130,24 +98,124 @@ pub fn integrate_model_configuration(
             }
             JointType::Fixed => {}
             JointType::Spherical => {
-                let cur = normalize_quat([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]);
-                let dq = delta_quat(v[vi], v[vi + 1], v[vi + 2], dt);
-                let next = normalize_quat(quat_mul(cur, dq));
-                out[qi..qi + 4].copy_from_slice(&next);
+                let cur = Quat::from_array([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]).normalize();
+                let omega = Vec3::new(v[vi], v[vi + 1], v[vi + 2]);
+                let dq = Quat::delta(omega, dt);
+                let next = cur.mul(dq).normalize();
+                out[qi..qi + 4].copy_from_slice(&next.to_array());
             }
             JointType::FreeFlyer => {
                 out[qi] = q[qi] + v[vi] * dt;
                 out[qi + 1] = q[qi + 1] + v[vi + 1] * dt;
                 out[qi + 2] = q[qi + 2] + v[vi + 2] * dt;
-                let cur = normalize_quat([q[qi + 3], q[qi + 4], q[qi + 5], q[qi + 6]]);
-                let dq = delta_quat(v[vi + 3], v[vi + 4], v[vi + 5], dt);
-                let next = normalize_quat(quat_mul(cur, dq));
-                out[qi + 3..qi + 7].copy_from_slice(&next);
+                let cur =
+                    Quat::from_array([q[qi + 3], q[qi + 4], q[qi + 5], q[qi + 6]]).normalize();
+                let omega = Vec3::new(v[vi + 3], v[vi + 4], v[vi + 5]);
+                let dq = Quat::delta(omega, dt);
+                let next = cur.mul(dq).normalize();
+                out[qi + 3..qi + 7].copy_from_slice(&next.to_array());
             }
         }
     }
 
     Ok(out)
+}
+
+pub fn neutral_configuration(model: &Model) -> Vec<f64> {
+    let mut out = vec![0.0; model.nq()];
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        match joint.jtype {
+            JointType::Spherical => {
+                out[qi..qi + 4].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]);
+            }
+            JointType::FreeFlyer => {
+                out[qi + 3..qi + 7].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+pub fn normalize_configuration(model: &Model, q: &[f64]) -> Result<Vec<f64>> {
+    if q.len() != model.nq() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: model.nq(),
+            got: q.len(),
+        });
+    }
+    let mut out = q.to_vec();
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        match joint.jtype {
+            JointType::Spherical => {
+                let nq = Quat::from_array([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]).normalize();
+                out[qi..qi + 4].copy_from_slice(&nq.to_array());
+            }
+            JointType::FreeFlyer => {
+                let nq = Quat::from_array([
+                    q[qi + 3],
+                    q[qi + 4],
+                    q[qi + 5],
+                    q[qi + 6],
+                ])
+                .normalize();
+                out[qi + 3..qi + 7].copy_from_slice(&nq.to_array());
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+pub fn is_normalized(model: &Model, q: &[f64], tol: f64) -> Result<bool> {
+    if q.len() != model.nq() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: model.nq(),
+            got: q.len(),
+        });
+    }
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        match joint.jtype {
+            JointType::Spherical => {
+                let q4 =
+                    Quat::from_array([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]);
+                if !q4.is_normalized(tol) {
+                    return Ok(false);
+                }
+            }
+            JointType::FreeFlyer => {
+                let q4 = Quat::from_array([
+                    q[qi + 3],
+                    q[qi + 4],
+                    q[qi + 5],
+                    q[qi + 6],
+                ]);
+                if !q4.is_normalized(tol) {
+                    return Ok(false);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(true)
 }
 
 pub fn integrate_configuration(q: &[f64], v: &[f64], dt: f64) -> Result<Vec<f64>> {
@@ -167,7 +235,7 @@ pub fn integrate_configuration(q: &[f64], v: &[f64], dt: f64) -> Result<Vec<f64>
     Ok(out)
 }
 
-pub fn difference_configuration(q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
+pub fn difference_configuration_plain(q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
     if q0.len() != q1.len() {
         return Err(PinocchioError::DimensionMismatch {
             expected: q0.len(),
@@ -177,7 +245,7 @@ pub fn difference_configuration(q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
     Ok(q1.iter().zip(q0.iter()).map(|(a, b)| a - b).collect())
 }
 
-pub fn interpolate_configuration(q0: &[f64], q1: &[f64], alpha: f64) -> Result<Vec<f64>> {
+pub fn interpolate_configuration_plain(q0: &[f64], q1: &[f64], alpha: f64) -> Result<Vec<f64>> {
     if !(0.0..=1.0).contains(&alpha) {
         return Err(PinocchioError::invalid_model("alpha must be in [0,1]"));
     }
@@ -194,12 +262,7 @@ pub fn interpolate_configuration(q0: &[f64], q1: &[f64], alpha: f64) -> Result<V
         .collect())
 }
 
-fn lcg_next_u64(state: &mut u64) -> u64 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
-    *state
-}
-
-pub fn random_configuration(lower: &[f64], upper: &[f64], seed: u64) -> Result<Vec<f64>> {
+pub fn random_configuration_plain(lower: &[f64], upper: &[f64], seed: u64) -> Result<Vec<f64>> {
     if lower.len() != upper.len() {
         return Err(PinocchioError::DimensionMismatch {
             expected: lower.len(),
@@ -214,8 +277,197 @@ pub fn random_configuration(lower: &[f64], upper: &[f64], seed: u64) -> Result<V
                 "upper bound must be >= lower bound",
             ));
         }
-        let r = (lcg_next_u64(&mut st) as f64) / (u64::MAX as f64);
+        let r = lcg_next_f64(&mut st);
         out[i] = lower[i] + r * (upper[i] - lower[i]);
+    }
+    Ok(out)
+}
+
+pub fn difference_configuration(model: &Model, q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
+    if q0.len() != model.nq() || q1.len() != model.nq() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: model.nq(),
+            got: q0.len(),
+        });
+    }
+    let n = model.nv();
+    let mut out = vec![0.0; n];
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        let vi = model.idx_v(j);
+        match joint.jtype {
+            JointType::Revolute | JointType::Prismatic => {
+                out[vi] = q1[qi] - q0[qi];
+            }
+            JointType::Fixed => {}
+            JointType::Spherical => {
+                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]])
+                    .normalize();
+                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]])
+                    .normalize();
+                let diff = a.conjugate().mul(b).normalize();
+                let omega = diff.log();
+                out[vi] = omega.x;
+                out[vi + 1] = omega.y;
+                out[vi + 2] = omega.z;
+            }
+            JointType::FreeFlyer => {
+                out[vi] = q1[qi] - q0[qi];
+                out[vi + 1] = q1[qi + 1] - q0[qi + 1];
+                out[vi + 2] = q1[qi + 2] - q0[qi + 2];
+                let a = Quat::from_array([
+                    q0[qi + 3],
+                    q0[qi + 4],
+                    q0[qi + 5],
+                    q0[qi + 6],
+                ])
+                .normalize();
+                let b = Quat::from_array([
+                    q1[qi + 3],
+                    q1[qi + 4],
+                    q1[qi + 5],
+                    q1[qi + 6],
+                ])
+                .normalize();
+                let diff = a.conjugate().mul(b).normalize();
+                let omega = diff.log();
+                out[vi + 3] = omega.x;
+                out[vi + 4] = omega.y;
+                out[vi + 5] = omega.z;
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn interpolate_configuration(
+    model: &Model,
+    q0: &[f64],
+    q1: &[f64],
+    alpha: f64,
+) -> Result<Vec<f64>> {
+    if !(0.0..=1.0).contains(&alpha) {
+        return Err(PinocchioError::invalid_model("alpha must be in [0,1]"));
+    }
+    if q0.len() != model.nq() || q1.len() != model.nq() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: model.nq(),
+            got: q0.len(),
+        });
+    }
+    let nq = model.nq();
+    let mut out = vec![0.0; nq];
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        match joint.jtype {
+            JointType::Revolute | JointType::Prismatic => {
+                out[qi] = (1.0 - alpha) * q0[qi] + alpha * q1[qi];
+            }
+            JointType::Fixed => {}
+            JointType::Spherical => {
+                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]])
+                    .normalize();
+                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]])
+                    .normalize();
+                let s = a.slerp(b, alpha);
+                out[qi..qi + 4].copy_from_slice(&s.to_array());
+            }
+            JointType::FreeFlyer => {
+                out[qi] = (1.0 - alpha) * q0[qi] + alpha * q1[qi];
+                out[qi + 1] = (1.0 - alpha) * q0[qi + 1] + alpha * q1[qi + 1];
+                out[qi + 2] = (1.0 - alpha) * q0[qi + 2] + alpha * q1[qi + 2];
+                let a = Quat::from_array([
+                    q0[qi + 3],
+                    q0[qi + 4],
+                    q0[qi + 5],
+                    q0[qi + 6],
+                ])
+                .normalize();
+                let b = Quat::from_array([
+                    q1[qi + 3],
+                    q1[qi + 4],
+                    q1[qi + 5],
+                    q1[qi + 6],
+                ])
+                .normalize();
+                let s = a.slerp(b, alpha);
+                out[qi + 3..qi + 7].copy_from_slice(&s.to_array());
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn lcg_next_u64(state: &mut u64) -> u64 {
+    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+    *state
+}
+
+fn lcg_next_f64(state: &mut u64) -> f64 {
+    (lcg_next_u64(state) as f64) / (u64::MAX as f64)
+}
+
+pub fn random_configuration(model: &Model, lower: &[f64], upper: &[f64], seed: u64) -> Result<Vec<f64>> {
+    if lower.len() != model.nq() || upper.len() != model.nq() {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: model.nq(),
+            got: lower.len(),
+        });
+    }
+    let nq = model.nq();
+    let mut st = seed;
+    let mut out = vec![0.0; nq];
+    for j in 0..model.njoints() {
+        let link_idx = model.joint_link(j).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        let qi = model.idx_q(j);
+        match joint.jtype {
+            JointType::Revolute | JointType::Prismatic => {
+                if upper[qi] < lower[qi] {
+                    return Err(PinocchioError::invalid_model(
+                        "upper bound must be >= lower bound",
+                    ));
+                }
+                let r = lcg_next_f64(&mut st);
+                out[qi] = lower[qi] + r * (upper[qi] - lower[qi]);
+            }
+            JointType::Fixed => {}
+            JointType::Spherical => {
+                let r1 = lcg_next_f64(&mut st);
+                let _r2 = lcg_next_f64(&mut st);
+                let q = Quat::uniform_random(r1);
+                out[qi..qi + 4].copy_from_slice(&q.to_array());
+            }
+            JointType::FreeFlyer => {
+                for k in 0..3 {
+                    let idx = qi + k;
+                    if upper[idx] < lower[idx] {
+                        return Err(PinocchioError::invalid_model(
+                            "upper bound must be >= lower bound",
+                        ));
+                    }
+                    let r = lcg_next_f64(&mut st);
+                    out[idx] = lower[idx] + r * (upper[idx] - lower[idx]);
+                }
+                let r1 = lcg_next_f64(&mut st);
+                let _r2 = lcg_next_f64(&mut st);
+                let q = Quat::uniform_random(r1);
+                out[qi + 3..qi + 7].copy_from_slice(&q.to_array());
+            }
+        }
     }
     Ok(out)
 }

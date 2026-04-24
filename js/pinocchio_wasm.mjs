@@ -1342,6 +1342,88 @@ export async function loadPinocchioWasm(wasmBytes) {
     return qdd;
   }
 
+  // ---------------------------------------------------------------------------
+  // Configuration-space operations
+  // ---------------------------------------------------------------------------
+
+  function neutralConfiguration(model) {
+    const nq = Number(w.pino_model_nq(model));
+    const outMem = writeF64Array(new Float64Array(nq));
+    const code = w.pino_neutral_configuration(model, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_neutral_configuration failed: ${code}`);
+    const q = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    freeBytes(outMem.ptr, outMem.bytes);
+    return q;
+  }
+
+  function normalizeConfiguration(model, q) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
+    const qMem = writeF64Array(new Float64Array(q));
+    const outMem = writeF64Array(new Float64Array(nq));
+    const code = w.pino_normalize_configuration(model, qMem.ptr, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_normalize_configuration failed: ${code}`);
+    const normalized = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    return normalized;
+  }
+
+  function isNormalized(model, q, tol = 1e-6) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
+    const qMem = writeF64Array(new Float64Array(q));
+    const result = w.pino_is_normalized(model, qMem.ptr, tol);
+    freeBytes(qMem.ptr, qMem.bytes);
+    return result === 1;
+  }
+
+  function differenceConfiguration(model, q0, q1) {
+    const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
+    if (q0.length !== nq || q1.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
+    const q0Mem = writeF64Array(new Float64Array(q0));
+    const q1Mem = writeF64Array(new Float64Array(q1));
+    const outMem = writeF64Array(new Float64Array(nv));
+    const code = w.pino_difference_configuration(model, q0Mem.ptr, q1Mem.ptr, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_difference_configuration failed: ${code}`);
+    const dv = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
+    freeBytes(q0Mem.ptr, q0Mem.bytes);
+    freeBytes(q1Mem.ptr, q1Mem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    return dv;
+  }
+
+  function interpolateConfiguration(model, q0, q1, alpha) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q0.length !== nq || q1.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
+    const q0Mem = writeF64Array(new Float64Array(q0));
+    const q1Mem = writeF64Array(new Float64Array(q1));
+    const outMem = writeF64Array(new Float64Array(nq));
+    const code = w.pino_interpolate_configuration(model, q0Mem.ptr, q1Mem.ptr, alpha, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_interpolate_configuration failed: ${code}`);
+    const q = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    freeBytes(q0Mem.ptr, q0Mem.bytes);
+    freeBytes(q1Mem.ptr, q1Mem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    return q;
+  }
+
+  function randomConfiguration(model, lower, upper, seed = 42) {
+    const nq = Number(w.pino_model_nq(model));
+    if (lower.length !== nq || upper.length !== nq) throw new Error(`invalid bounds length: expected ${nq}`);
+    const lowerMem = writeF64Array(new Float64Array(lower));
+    const upperMem = writeF64Array(new Float64Array(upper));
+    const outMem = writeF64Array(new Float64Array(nq));
+    const code = w.pino_random_configuration(model, lowerMem.ptr, upperMem.ptr, seed, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_random_configuration failed: ${code}`);
+    const q = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    freeBytes(lowerMem.ptr, lowerMem.bytes);
+    freeBytes(upperMem.ptr, upperMem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    return q;
+  }
+
   return {
     exports: w,
 
@@ -1411,6 +1493,14 @@ export async function loadPinocchioWasm(wasmBytes) {
 
     // Constrained
     constrainedAbaLockedJoints,
+
+    // Configuration-space
+    neutralConfiguration,
+    normalizeConfiguration,
+    isNormalized,
+    differenceConfiguration,
+    interpolateConfiguration,
+    randomConfiguration,
 
     // Memory helpers
     allocBytes,

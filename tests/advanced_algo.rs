@@ -1,8 +1,9 @@
 use pinocchio_wasm::algo::{
     ContactPoint, aba_derivatives, build_contact_problem, center_of_mass_derivatives,
-    centroidal_derivatives, centroidal_map, centroidal_momentum, difference_configuration,
-    frame_jacobian_derivatives, integrate_configuration, interpolate_configuration,
-    inverse_dynamics_regressor, kinematics_derivatives, random_configuration, rnea_derivatives,
+    centroidal_derivatives, centroidal_map, centroidal_momentum,
+    difference_configuration_plain,
+    frame_jacobian_derivatives, integrate_configuration, interpolate_configuration_plain,
+    inverse_dynamics_regressor, kinematics_derivatives, random_configuration_plain, rnea_derivatives,
     solve_contact_admm, solve_contact_cholesky, solve_contact_pgs,
 };
 use pinocchio_wasm::core::math::{Mat3, Vec3};
@@ -100,9 +101,9 @@ fn config_space_tools_smoke() {
     let q0 = vec![0.0, 1.0, 2.0];
     let v = vec![1.0, -1.0, 0.5];
     let q1 = integrate_configuration(&q0, &v, 0.1).expect("integrate");
-    let dq = difference_configuration(&q0, &q1).expect("diff");
-    let qh = interpolate_configuration(&q0, &q1, 0.5).expect("interp");
-    let qr = random_configuration(&[-1.0, -2.0], &[1.0, 2.0], 42).expect("rand");
+    let dq = difference_configuration_plain(&q0, &q1).expect("diff");
+    let qh = interpolate_configuration_plain(&q0, &q1, 0.5).expect("interp");
+    let qr = random_configuration_plain(&[-1.0, -2.0], &[1.0, 2.0], 42).expect("rand");
     assert_eq!(q1.len(), q0.len());
     assert_eq!(dq.len(), q0.len());
     assert_eq!(qh.len(), q0.len());
