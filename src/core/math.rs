@@ -144,6 +144,16 @@ impl Mat3 {
         out
     }
 
+    pub fn scale(self, k: f64) -> Self {
+        let mut out = Self::zero();
+        for (r, row) in out.m.iter_mut().enumerate() {
+            for (c, cell) in row.iter_mut().enumerate() {
+                *cell = self.m[r][c] * k;
+            }
+        }
+        out
+    }
+
     pub fn skew(v: Vec3) -> Self {
         Self::new([[0.0, -v.z, v.y], [v.z, 0.0, -v.x], [-v.y, v.x, 0.0]])
     }

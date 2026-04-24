@@ -1,5 +1,5 @@
 use crate::core::error::{PinocchioError, Result};
-use crate::core::math::Vec3;
+use crate::core::math::{Mat3, Vec3};
 use crate::model::{JointType, Model, Workspace};
 
 use super::kinematics::forward_kinematics;
@@ -186,7 +186,9 @@ pub fn cholesky_solve(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>> {
     Ok(x)
 }
 
-pub fn aba(
+/// O(n³) ABA: compute joint accelerations via CRBA + Cholesky decomposition.
+/// This is kept for cross-validation against the O(n) ABA.
+pub fn aba_crba(
     model: &Model,
     q: &[f64],
     qd: &[f64],
@@ -212,6 +214,347 @@ pub fn aba(
         .collect();
 
     cholesky_solve(&mass, &rhs)
+}
+
+type SpatialMatrix = [[f64; 6]; 6];
+type SpatialVector = [f64; 6];
+
+fn spatial_zero() -> SpatialMatrix {
+    [[0.0; 6]; 6]
+}
+
+fn spatial_vec_zero() -> SpatialVector {
+    [0.0; 6]
+}
+
+fn spatial_vec(angular: Vec3, linear: Vec3) -> SpatialVector {
+    [
+        angular.x, angular.y, angular.z, linear.x, linear.y, linear.z,
+    ]
+}
+
+fn spatial_dot(a: SpatialVector, b: SpatialVector) -> f64 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+
+fn spatial_mat_vec(m: &SpatialMatrix, v: SpatialVector) -> SpatialVector {
+    let mut out = [0.0; 6];
+    for r in 0..6 {
+        for (c, vc) in v.iter().copied().enumerate() {
+            out[r] += m[r][c] * vc;
+        }
+    }
+    out
+}
+
+fn spatial_add_assign(dst: &mut SpatialMatrix, src: &SpatialMatrix) {
+    for r in 0..6 {
+        for c in 0..6 {
+            dst[r][c] += src[r][c];
+        }
+    }
+}
+
+fn spatial_vec_add_assign(dst: &mut SpatialVector, src: SpatialVector) {
+    for i in 0..6 {
+        dst[i] += src[i];
+    }
+}
+
+fn spatial_inertia_from_blocks(theta: Mat3, h_mat: Mat3, m_mat: Mat3) -> SpatialMatrix {
+    let mut out = spatial_zero();
+    for r in 0..3 {
+        for c in 0..3 {
+            out[r][c] = theta.m[r][c];
+            out[r][c + 3] = h_mat.m[r][c];
+            out[r + 3][c] = h_mat.m[c][r];
+            out[r + 3][c + 3] = m_mat.m[r][c];
+        }
+    }
+    out
+}
+
+fn spatial_reduce(i_mat: &SpatialMatrix, u_vec: SpatialVector, d_inv: f64) -> SpatialMatrix {
+    let mut out = *i_mat;
+    for r in 0..6 {
+        for c in 0..6 {
+            out[r][c] -= u_vec[r] * u_vec[c] * d_inv;
+        }
+    }
+    out
+}
+
+fn spatial_bias_reduce(p_vec: SpatialVector, u_vec: SpatialVector, ud: f64) -> SpatialVector {
+    let mut out = p_vec;
+    for i in 0..6 {
+        out[i] += u_vec[i] * ud;
+    }
+    out
+}
+
+fn motion_shift_matrix(r_parent_to_acc_origin: Vec3) -> SpatialMatrix {
+    let mut out = spatial_zero();
+    for i in 0..3 {
+        out[i][i] = 1.0;
+        out[i + 3][i + 3] = 1.0;
+    }
+    let s = Mat3::skew(r_parent_to_acc_origin);
+    for r in 0..3 {
+        for c in 0..3 {
+            out[r + 3][c] = -s.m[r][c];
+        }
+    }
+    out
+}
+
+fn force_shift_matrix(r_parent_to_force_origin: Vec3) -> SpatialMatrix {
+    let mut out = spatial_zero();
+    for i in 0..3 {
+        out[i][i] = 1.0;
+        out[i + 3][i + 3] = 1.0;
+    }
+    let s = Mat3::skew(r_parent_to_force_origin);
+    for r in 0..3 {
+        for c in 0..3 {
+            out[r][c + 3] = s.m[r][c];
+        }
+    }
+    out
+}
+
+fn spatial_mul(a: &SpatialMatrix, b: &SpatialMatrix) -> SpatialMatrix {
+    let mut out = spatial_zero();
+    for r in 0..6 {
+        for c in 0..6 {
+            for k in 0..6 {
+                out[r][c] += a[r][k] * b[k][c];
+            }
+        }
+    }
+    out
+}
+
+fn transform_spatial_inertia(
+    i_mat: &SpatialMatrix,
+    r_parent_to_acc_origin: Vec3,
+    r_parent_to_force_origin: Vec3,
+) -> SpatialMatrix {
+    let x_acc = motion_shift_matrix(r_parent_to_acc_origin);
+    let x_force = force_shift_matrix(r_parent_to_force_origin);
+    spatial_mul(&x_force, &spatial_mul(i_mat, &x_acc))
+}
+
+fn transform_spatial_force(p_vec: SpatialVector, r_parent_to_force_origin: Vec3) -> SpatialVector {
+    let x_force = force_shift_matrix(r_parent_to_force_origin);
+    spatial_mat_vec(&x_force, p_vec)
+}
+
+/// O(n) Articulated Body Algorithm (Featherstone 2008).
+///
+/// Computes `qdd = M^{-1} * (tau - b)` in O(n) using three passes:
+///   1. Forward pass: FK to compute positions, velocities, and bias terms (qdd=0)
+///   2. Backward pass: compute articulated-body inertias and bias forces
+///   3. Forward pass: compute joint accelerations
+///
+/// Uses 6D spatial algebra decomposed into 3x3 blocks:
+///   Spatial inertia Ia = | Theta   H   |   (Theta = rotational, H = coupling, M = translational)
+///                        |  H^T    M   |
+///   Spatial bias   pa = | pa_rot  |   (angular and linear bias forces)
+///                       | pa_lin  |
+pub fn aba(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    tau: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<Vec<f64>> {
+    let n = model.nv();
+    model.check_state_dims(q, qd, None)?;
+    if tau.len() != n {
+        return Err(PinocchioError::DimensionMismatch {
+            expected: n,
+            got: tau.len(),
+        });
+    }
+
+    let nlinks = model.nlinks();
+    let njoints = model.njoints();
+
+    let mut articulated_inertia = vec![spatial_zero(); nlinks];
+    let mut articulated_bias = vec![spatial_vec_zero(); nlinks];
+    let mut d = vec![0.0; njoints];
+    let mut u = vec![0.0; njoints];
+    let mut u_vec = vec![spatial_vec_zero(); njoints];
+
+    // ========================================================================
+    // Pass 1: Forward kinematics (with qdd=0 to get velocities and bias terms)
+    // ========================================================================
+    let qdd_zero = vec![0.0; n];
+    forward_kinematics(model, q, qd, &qdd_zero, gravity, ws)?;
+
+    // Initialize articulated body inertias from rigid body properties.
+    // Spatial inertia of link i about its origin:
+    //   Theta = I_c + m*(|r|^2 * I3 - r*r^T)  (rotational, parallel axis theorem)
+    //   H     = m * skew(r)                      (coupling)
+    //   M     = m * I3                            (translational)
+    // where r = r_com (CoM offset from link origin, in world frame).
+    //
+    // Bias force (the force needed to produce the FK-computed acceleration when qdd=0):
+    //   pa_rot = torque about origin
+    //   pa_lin = force on link
+    for i in 0..nlinks {
+        let link = &model.links[i];
+        let pose = ws.world_pose[i];
+        let r_com = pose.rotation.mul_vec(link.com_local); // CoM in world, relative to link origin
+        let i_world = pose
+            .rotation
+            .mul_mat(link.inertia_local_com)
+            .mul_mat(pose.rotation.transpose());
+
+        // Apply parallel axis theorem to get inertia about link origin.
+        let r_sq = r_com.dot(r_com);
+        let theta = i_world.add_mat(
+            Mat3::identity()
+                .scale(link.mass * r_sq)
+                .add_mat(Mat3::outer(r_com, r_com).scale(-link.mass)),
+        );
+        let h_mat = Mat3::skew(r_com).scale(link.mass);
+        let m_mat = Mat3::identity().scale(link.mass);
+        articulated_inertia[i] = spatial_inertia_from_blocks(theta, h_mat, m_mat);
+
+        // Compute the bias force: the net force/torque on the link from the
+        // FK-computed motion (which includes gravity and Coriolis effects
+        // because qdd=0 but gravity was passed to FK).
+        let iw = i_world.mul_vec(ws.omega[i]);
+        let com_acc = ws.acc_origin[i]
+            + ws.alpha[i].cross(r_com)
+            + ws.omega[i].cross(ws.omega[i].cross(r_com));
+        let f = com_acc * link.mass;
+        let n_origin = i_world.mul_vec(ws.alpha[i]) + ws.omega[i].cross(iw) + r_com.cross(f);
+
+        articulated_bias[i] = spatial_vec(n_origin, f);
+    }
+
+    // ========================================================================
+    // Pass 2: Backward pass (leaves to root) — compute articulated body inertias
+    // ========================================================================
+    for link_idx in (1..nlinks).rev() {
+        let jidx = model.link_joint(link_idx).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+
+        let parent = model.links[link_idx].parent.expect("validated model");
+        let r_force = ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
+        let r_acc = match joint.jtype {
+            JointType::Prismatic => ws.world_joint_origin[jidx] - ws.world_pose[parent].translation,
+            JointType::Revolute | JointType::Fixed => r_force,
+        };
+
+        let (reduced_inertia, reduced_bias) = if joint.nv() == 0 {
+            (articulated_inertia[link_idx], articulated_bias[link_idx])
+        } else {
+            let vi = model.idx_v(jidx);
+            let axis = ws.world_joint_axis[jidx];
+            let s_vec = match joint.jtype {
+                JointType::Revolute => spatial_vec(axis, Vec3::zero()),
+                JointType::Prismatic => spatial_vec(Vec3::zero(), axis),
+                JointType::Fixed => unreachable!(),
+            };
+            let ia_s = spatial_mat_vec(&articulated_inertia[link_idx], s_vec);
+            d[jidx] = spatial_dot(s_vec, ia_s);
+            u[jidx] = tau[vi] - spatial_dot(s_vec, articulated_bias[link_idx]);
+            u_vec[jidx] = ia_s;
+
+            if d[jidx].abs() < 1e-30 {
+                return Err(PinocchioError::SingularMatrix);
+            }
+            let d_inv = 1.0 / d[jidx];
+            (
+                spatial_reduce(&articulated_inertia[link_idx], ia_s, d_inv),
+                spatial_bias_reduce(articulated_bias[link_idx], ia_s, u[jidx] * d_inv),
+            )
+        };
+
+        let shifted_inertia = transform_spatial_inertia(&reduced_inertia, r_acc, r_force);
+        let shifted_bias = transform_spatial_force(reduced_bias, r_force);
+        spatial_add_assign(&mut articulated_inertia[parent], &shifted_inertia);
+        spatial_vec_add_assign(&mut articulated_bias[parent], shifted_bias);
+    }
+
+    // ========================================================================
+    // Pass 3: Forward pass (root to leaves) — compute joint accelerations
+    // ========================================================================
+    let mut qdd = vec![0.0; n];
+
+    // Track the change in spatial acceleration due to non-zero qdd.
+    // The root is fixed, so its delta acceleration is zero.
+    // (Gravity and Coriolis are already accounted for in the bias forces.)
+    let mut delta_alpha = vec![Vec3::zero(); nlinks]; // delta angular acceleration
+    let mut delta_a = vec![Vec3::zero(); nlinks]; // delta linear acceleration
+    // delta_alpha[0] and delta_a[0] are already zero
+
+    for link_idx in 1..nlinks {
+        let parent = model.links[link_idx].parent.expect("validated model");
+        let jidx = model.link_joint(link_idx).expect("validated model");
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
+
+        if joint.nv() == 0 {
+            let r_parent_to_child =
+                ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
+            delta_alpha[link_idx] = delta_alpha[parent];
+            delta_a[link_idx] = delta_a[parent] + delta_alpha[parent].cross(r_parent_to_child);
+            continue;
+        }
+
+        let vi = model.idx_v(jidx);
+        let axis = ws.world_joint_axis[jidx];
+
+        // The joint acceleration uses the parent delta acceleration shifted
+        // to this link origin, because all articulated quantities are stored
+        // at the child link origin.
+        let r_parent_to_child = match joint.jtype {
+            JointType::Prismatic => ws.world_joint_origin[jidx] - ws.world_pose[parent].translation,
+            JointType::Revolute => {
+                ws.world_pose[link_idx].translation - ws.world_pose[parent].translation
+            }
+            JointType::Fixed => unreachable!(),
+        };
+        let base_alpha = delta_alpha[parent];
+        let base_acc = delta_a[parent] + base_alpha.cross(r_parent_to_child);
+
+        let base_spatial_acc = spatial_vec(base_alpha, base_acc);
+        let qdd_j = match joint.jtype {
+            JointType::Revolute => (u[jidx] - spatial_dot(u_vec[jidx], base_spatial_acc)) / d[jidx],
+            JointType::Prismatic => {
+                (u[jidx] - spatial_dot(u_vec[jidx], base_spatial_acc)) / d[jidx]
+            }
+            JointType::Fixed => unreachable!(),
+        };
+
+        qdd[vi] = qdd_j;
+
+        // Propagate the delta acceleration from parent to this link.
+        // Only terms that depend on qdd change; Coriolis and centripetal are constant.
+        match joint.jtype {
+            JointType::Revolute => {
+                delta_alpha[link_idx] = base_alpha + axis * qdd_j;
+                delta_a[link_idx] = base_acc;
+            }
+            JointType::Prismatic => {
+                delta_alpha[link_idx] = base_alpha;
+                delta_a[link_idx] = base_acc + axis * qdd_j;
+            }
+            JointType::Fixed => unreachable!(),
+        }
+    }
+
+    Ok(qdd)
 }
 
 pub fn is_ancestor(model: &Model, maybe_ancestor: usize, mut node: usize) -> bool {

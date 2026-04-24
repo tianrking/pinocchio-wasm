@@ -336,6 +336,15 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 
 **目标:** 将 ABA 从 O(n³) CRBA+Cholesky 改为标准 O(n) 递归算法。
 
+**状态:** ✅ 已完成 [Batch 3]
+
+**实现记录:**
+- `aba()` 已替换为 O(n) 三遍 Articulated Body Algorithm，内部使用 6×6 spatial inertia / force 表示，与原版 Pinocchio 的 `Yaba` 思路对齐。
+- 旧 CRBA+Cholesky 正动力学保留为 `aba_crba()`，用于交叉验证和回归保护。
+- 覆盖 revolute、fixed、prismatic、混合关节、零速度/零重力、多构型链的 `aba` vs `aba_crba` 数值一致性测试。
+- 质量门禁: `cargo test --all-targets --all-features` 全部通过，累计 81 个测试；`node --check js/pinocchio_wasm.mjs` 通过。
+- 备注: `cargo clippy --all-targets --all-features -- -D warnings` 当前仍被既有 batch/contact/rollout API 的 `too_many_arguments` 和旧循环 lint 阻塞，非 Batch 3 新增功能失败。
+
 **Slice 3.1 — 实现 Articulated Body Algorithm**
 - 实现 O(n) 递归前向 pass + 后向 pass
 - 保留旧实现作为 `aba_crba()` 用于交叉验证
