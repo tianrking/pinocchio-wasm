@@ -201,7 +201,7 @@ impl CollisionModel {
         filter: PairFilter,
     ) -> Result<Self> {
         if geometries.is_empty() {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "collision model must contain at least one geometry",
             ));
         }
@@ -210,7 +210,7 @@ impl CollisionModel {
         }
         for (a, b) in &pairs {
             if *a >= geometries.len() || *b >= geometries.len() || *a == *b {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "invalid collision pair indices",
                 ));
             }
@@ -262,14 +262,14 @@ fn validate_geometry(g: Geometry) -> Result<()> {
     match g {
         Geometry::Sphere { radius, .. } => {
             if radius < 0.0 {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "sphere radius must be non-negative",
                 ));
             }
         }
         Geometry::Box { half_extents, .. } | Geometry::MeshApprox { half_extents, .. } => {
             if half_extents.x < 0.0 || half_extents.y < 0.0 || half_extents.z < 0.0 {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "half extents must be non-negative",
                 ));
             }
@@ -285,7 +285,7 @@ fn validate_geometry(g: Geometry) -> Result<()> {
             ..
         } => {
             if half_length < 0.0 || radius < 0.0 {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "capsule/cylinder dimensions must be non-negative",
                 ));
             }
@@ -457,7 +457,7 @@ pub fn minimum_distance_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -491,7 +491,7 @@ pub fn minimum_distance_detailed_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,

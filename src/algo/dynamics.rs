@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{Model, Workspace};
+use crate::model::{JointType, Model, Workspace};
 
 use super::kinematics::forward_kinematics;
 
@@ -35,12 +35,31 @@ pub fn rnea(
         ws.torque[link_idx] = n_origin;
     }
 
-    let mut tau = vec![0.0; model.nv()];
+    let n = model.nv();
+    let mut tau = vec![0.0; n];
     for link_idx in (1..model.nlinks()).rev() {
         let jidx = model.link_joint(link_idx).expect("validated model");
-        let axis = ws.world_joint_axis[jidx];
-        tau[jidx] = ws.torque[link_idx].dot(axis);
+        let joint = model.links[link_idx]
+            .joint
+            .as_ref()
+            .expect("validated model");
 
+        // Only compute tau for joints with velocity DOFs
+        if joint.nv() > 0 {
+            let vi = model.idx_v(jidx);
+            let axis = ws.world_joint_axis[jidx];
+            match joint.jtype {
+                JointType::Revolute => {
+                    tau[vi] = ws.torque[link_idx].dot(axis);
+                }
+                JointType::Prismatic => {
+                    tau[vi] = ws.force[link_idx].dot(axis);
+                }
+                JointType::Fixed => {}
+            }
+        }
+
+        // Always propagate forces/torques to parent
         let parent = model.links[link_idx].parent.expect("validated model");
         let r_parent_to_joint =
             ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
@@ -124,7 +143,7 @@ pub fn cholesky_solve(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>> {
     }
     for row in a {
         if row.len() != n {
-            return Err(PinocchioError::InvalidModel("matrix must be square"));
+            return Err(PinocchioError::invalid_model("matrix must be square"));
         }
     }
 

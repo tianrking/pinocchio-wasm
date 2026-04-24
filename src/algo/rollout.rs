@@ -21,14 +21,14 @@ pub fn rollout_aba_euler(
     qd_out: &mut [f64],
 ) -> Result<()> {
     if dt <= 0.0 {
-        return Err(PinocchioError::InvalidModel("dt must be > 0"));
+        return Err(PinocchioError::invalid_model("dt must be > 0"));
     }
 
     let n = model.nv();
     model.check_state_dims(init.q0, init.qd0, None)?;
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if tau_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -72,7 +72,7 @@ pub fn integrate_configuration(q: &[f64], v: &[f64], dt: f64) -> Result<Vec<f64>
         });
     }
     if dt <= 0.0 {
-        return Err(PinocchioError::InvalidModel("dt must be > 0"));
+        return Err(PinocchioError::invalid_model("dt must be > 0"));
     }
     let mut out = vec![0.0; q.len()];
     for i in 0..q.len() {
@@ -93,7 +93,7 @@ pub fn difference_configuration(q0: &[f64], q1: &[f64]) -> Result<Vec<f64>> {
 
 pub fn interpolate_configuration(q0: &[f64], q1: &[f64], alpha: f64) -> Result<Vec<f64>> {
     if !(0.0..=1.0).contains(&alpha) {
-        return Err(PinocchioError::InvalidModel("alpha must be in [0,1]"));
+        return Err(PinocchioError::invalid_model("alpha must be in [0,1]"));
     }
     if q0.len() != q1.len() {
         return Err(PinocchioError::DimensionMismatch {
@@ -124,7 +124,7 @@ pub fn random_configuration(lower: &[f64], upper: &[f64], seed: u64) -> Result<V
     let mut out = vec![0.0; lower.len()];
     for i in 0..lower.len() {
         if upper[i] < lower[i] {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "upper bound must be >= lower bound",
             ));
         }

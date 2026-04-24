@@ -18,6 +18,7 @@ fn ffi_roundtrip_smoke() {
         inertias[9 * i + 8] = 1.0;
     }
 
+    let joint_types = vec![0i32; nlinks]; // all revolute
     let model = pino_model_create(
         nlinks,
         parents.as_ptr(),
@@ -26,6 +27,7 @@ fn ffi_roundtrip_smoke() {
         masses.as_ptr(),
         coms.as_ptr(),
         inertias.as_ptr(),
+        joint_types.as_ptr(),
     );
     assert!(!model.is_null());
 

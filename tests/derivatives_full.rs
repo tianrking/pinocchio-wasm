@@ -37,15 +37,9 @@ fn second_order_and_constraint_impulse_derivatives_smoke() {
     let qd = [0.4, 0.1];
     let qdd = [0.3, -0.2];
 
-    let so = rnea_second_order_derivatives(
-        &model,
-        &q,
-        &qd,
-        &qdd,
-        Vec3::new(0.0, 0.0, -9.81),
-        &mut ws,
-    )
-    .expect("second order");
+    let so =
+        rnea_second_order_derivatives(&model, &q, &qd, &qdd, Vec3::new(0.0, 0.0, -9.81), &mut ws)
+            .expect("second order");
     let n = model.nv();
     assert_eq!(so.d2_out_dq2.len(), n * n * n);
     assert_eq!(so.d2_out_dv2.len(), n * n * n);

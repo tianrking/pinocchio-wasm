@@ -32,7 +32,7 @@ pub fn center_of_mass(model: &Model, q: &[f64], ws: &mut Workspace) -> Result<Ve
     }
 
     if m_total <= 1e-12 {
-        return Err(PinocchioError::InvalidModel("total mass must be > 0"));
+        return Err(PinocchioError::invalid_model("total mass must be > 0"));
     }
     Ok(weighted * (1.0 / m_total))
 }

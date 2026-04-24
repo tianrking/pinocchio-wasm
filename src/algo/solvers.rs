@@ -160,7 +160,7 @@ pub fn solve_contact_admm(
 ) -> Result<Vec<f64>> {
     let k = problem.rhs.len();
     if rho <= 0.0 {
-        return Err(PinocchioError::InvalidModel("rho must be > 0"));
+        return Err(PinocchioError::invalid_model("rho must be > 0"));
     }
     let mut z = vec![0.0; k];
     let mut u = vec![0.0; k];

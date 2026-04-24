@@ -85,7 +85,7 @@ pub fn inverse_dynamics_regressor_batch(
     let p = 10 * model.nlinks();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected || qd_batch.len() != expected || qdd_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -199,7 +199,7 @@ pub fn select_independent_regressor_columns(
         });
     }
     if tolerance <= 0.0 {
-        return Err(PinocchioError::InvalidModel("tolerance must be > 0"));
+        return Err(PinocchioError::invalid_model("tolerance must be > 0"));
     }
     let mut selected = Vec::<usize>::new();
     let mut q_cols: Vec<Vec<f64>> = Vec::new();

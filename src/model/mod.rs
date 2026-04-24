@@ -7,8 +7,16 @@ use crate::core::error::{PinocchioError, Result};
 use crate::core::math::{Mat3, Transform, Vec3};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JointType {
+    Revolute,  // nq=1, nv=1: rotation around axis
+    Prismatic, // nq=1, nv=1: translation along axis
+    Fixed,     // nq=0, nv=0: no degrees of freedom
+}
+
 #[derive(Debug, Clone)]
 pub struct Joint {
+    pub jtype: JointType,
     pub axis: Vec3,
     pub origin: Transform,
 }
@@ -16,8 +24,39 @@ pub struct Joint {
 impl Joint {
     pub fn revolute(axis: Vec3, origin_translation: Vec3) -> Self {
         Self {
+            jtype: JointType::Revolute,
             axis,
             origin: Transform::new(Mat3::identity(), origin_translation),
+        }
+    }
+
+    pub fn prismatic(axis: Vec3, origin_translation: Vec3) -> Self {
+        Self {
+            jtype: JointType::Prismatic,
+            axis,
+            origin: Transform::new(Mat3::identity(), origin_translation),
+        }
+    }
+
+    pub fn fixed(origin_translation: Vec3) -> Self {
+        Self {
+            jtype: JointType::Fixed,
+            axis: Vec3::new(0.0, 0.0, 1.0), // axis unused for fixed
+            origin: Transform::new(Mat3::identity(), origin_translation),
+        }
+    }
+
+    pub fn nq(&self) -> usize {
+        match self.jtype {
+            JointType::Revolute | JointType::Prismatic => 1,
+            JointType::Fixed => 0,
+        }
+    }
+
+    pub fn nv(&self) -> usize {
+        match self.jtype {
+            JointType::Revolute | JointType::Prismatic => 1,
+            JointType::Fixed => 0,
         }
     }
 }
@@ -72,19 +111,23 @@ impl Link {
 pub struct Model {
     pub links: Vec<Link>,
     parent_to_children: Vec<Vec<usize>>,
-    joint_to_link: Vec<usize>,
-    link_to_joint: Vec<Option<usize>>,
+    joint_to_link: Vec<usize>,         // ALL joints (including fixed)
+    link_to_joint: Vec<Option<usize>>, // link -> joint index
+    joint_nq: Vec<usize>,              // nq for each joint
+    joint_nv: Vec<usize>,              // nv for each joint
+    joint_idx_v: Vec<usize>,           // velocity-space index offset for each joint
+    joint_idx_q: Vec<usize>,           // config-space index offset for each joint
 }
 
 impl Model {
     pub fn new(links: Vec<Link>) -> Result<Self> {
         if links.is_empty() {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "model must contain at least one root link",
             ));
         }
         if links[0].parent.is_some() || links[0].joint.is_some() {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "link[0] must be a fixed root link",
             ));
         }
@@ -94,16 +137,16 @@ impl Model {
         let mut link_to_joint = vec![None; links.len()];
 
         for (idx, link) in links.iter().enumerate().skip(1) {
-            let parent = link.parent.ok_or(PinocchioError::InvalidModel(
+            let parent = link.parent.ok_or(PinocchioError::invalid_model(
                 "non-root link must have a parent",
             ))?;
             if parent >= idx {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "parents must appear before children (topological order)",
                 ));
             }
             if link.joint.is_none() {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "non-root link must have a joint",
                 ));
             }
@@ -113,20 +156,48 @@ impl Model {
             link_to_joint[idx] = Some(jidx);
         }
 
+        // Build index offsets for each joint
+        let mut joint_nq = Vec::with_capacity(joint_to_link.len());
+        let mut joint_nv = Vec::with_capacity(joint_to_link.len());
+        let mut joint_idx_q = Vec::with_capacity(joint_to_link.len());
+        let mut joint_idx_v = Vec::with_capacity(joint_to_link.len());
+
+        let mut offset_q: usize = 0;
+        let mut offset_v: usize = 0;
+        for &link_idx in &joint_to_link {
+            let joint = links[link_idx].joint.as_ref().expect("validated model");
+            let nq = joint.nq();
+            let nv = joint.nv();
+            joint_nq.push(nq);
+            joint_nv.push(nv);
+            joint_idx_q.push(offset_q);
+            joint_idx_v.push(offset_v);
+            offset_q += nq;
+            offset_v += nv;
+        }
+
         Ok(Self {
             links,
             parent_to_children,
             joint_to_link,
             link_to_joint,
+            joint_nq,
+            joint_nv,
+            joint_idx_v,
+            joint_idx_q,
         })
     }
 
     pub fn nq(&self) -> usize {
-        self.joint_to_link.len()
+        self.joint_nq.iter().sum()
     }
 
     pub fn nv(&self) -> usize {
-        self.nq()
+        self.joint_nv.iter().sum()
+    }
+
+    pub fn njoints(&self) -> usize {
+        self.joint_to_link.len()
     }
 
     pub fn nlinks(&self) -> usize {
@@ -143,6 +214,22 @@ impl Model {
 
     pub fn link_joint(&self, link_index: usize) -> Option<usize> {
         self.link_to_joint.get(link_index).and_then(|x| *x)
+    }
+
+    pub fn idx_q(&self, joint_index: usize) -> usize {
+        self.joint_idx_q[joint_index]
+    }
+
+    pub fn idx_v(&self, joint_index: usize) -> usize {
+        self.joint_idx_v[joint_index]
+    }
+
+    pub fn joint_type(&self, joint_index: usize) -> JointType {
+        self.links[self.joint_to_link[joint_index]]
+            .joint
+            .as_ref()
+            .unwrap()
+            .jtype
     }
 
     pub fn check_state_dims(&self, q: &[f64], qd: &[f64], qdd: Option<&[f64]>) -> Result<()> {
@@ -188,6 +275,7 @@ pub(crate) struct UrdfJointSpec {
     pub child_link: String,
     pub axis: [f64; 3],
     pub origin: [f64; 3],
+    pub jtype: JointType,
 }
 
 // ---------------------------------------------------------------------------
@@ -197,13 +285,13 @@ pub(crate) struct UrdfJointSpec {
 pub(crate) fn required_attr(node: roxmltree::Node<'_, '_>, name: &str) -> Result<String> {
     node.attribute(name)
         .map(str::to_string)
-        .ok_or(PinocchioError::InvalidModel(
+        .ok_or(PinocchioError::invalid_model(
             "missing required urdf attribute",
         ))
 }
 
 pub(crate) fn parse_xyz_node(node: roxmltree::Node<'_, '_>) -> Result<[f64; 3]> {
-    let raw = node.attribute("xyz").ok_or(PinocchioError::InvalidModel(
+    let raw = node.attribute("xyz").ok_or(PinocchioError::invalid_model(
         "missing xyz attribute in urdf node",
     ))?;
     parse_vec3_text(raw)
@@ -214,9 +302,9 @@ pub(crate) fn parse_vec3_text(raw: &str) -> Result<[f64; 3]> {
         .split_whitespace()
         .map(|v| v.parse::<f64>())
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|_| PinocchioError::InvalidModel("invalid numeric value in urdf"))?;
+        .map_err(|_| PinocchioError::invalid_model("invalid numeric value in urdf"))?;
     if vals.len() != 3 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "expected xyz with exactly 3 values",
         ));
     }
@@ -226,9 +314,9 @@ pub(crate) fn parse_vec3_text(raw: &str) -> Result<[f64; 3]> {
 pub(crate) fn parse_urdf_inertia_node(node: roxmltree::Node<'_, '_>) -> Result<[[f64; 3]; 3]> {
     let get = |name: &str| -> Result<f64> {
         node.attribute(name)
-            .ok_or(PinocchioError::InvalidModel("missing inertia attribute"))?
+            .ok_or(PinocchioError::invalid_model("missing inertia attribute"))?
             .parse::<f64>()
-            .map_err(|_| PinocchioError::InvalidModel("invalid inertia numeric value"))
+            .map_err(|_| PinocchioError::invalid_model("invalid inertia numeric value"))
     };
     let ixx = get("ixx")?;
     let iyy = get("iyy")?;
@@ -242,9 +330,9 @@ pub(crate) fn parse_urdf_inertia_node(node: roxmltree::Node<'_, '_>) -> Result<[
 pub(crate) fn parse_sdf_inertia_node(node: roxmltree::Node<'_, '_>) -> Result<[[f64; 3]; 3]> {
     let get = |name: &str| -> Result<f64> {
         text_of_child(node, name)
-            .ok_or(PinocchioError::InvalidModel("missing sdf inertia element"))?
+            .ok_or(PinocchioError::invalid_model("missing sdf inertia element"))?
             .parse::<f64>()
-            .map_err(|_| PinocchioError::InvalidModel("invalid sdf inertia numeric value"))
+            .map_err(|_| PinocchioError::invalid_model("invalid sdf inertia numeric value"))
     };
     let ixx = get("ixx")?;
     let iyy = get("iyy")?;
@@ -267,9 +355,9 @@ pub(crate) fn parse_pose_xyz_text(raw: String) -> Result<[f64; 3]> {
         .split_whitespace()
         .map(|v| v.parse::<f64>())
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|_| PinocchioError::InvalidModel("invalid numeric value in pose"))?;
+        .map_err(|_| PinocchioError::invalid_model("invalid numeric value in pose"))?;
     if vals.len() < 3 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "pose must contain at least xyz values",
         ));
     }
@@ -299,7 +387,7 @@ pub(crate) fn build_tree_model_from_specs(
         .cloned()
         .collect();
     if roots.len() != 1 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "loader requires exactly one root link",
         ));
     }
@@ -315,7 +403,7 @@ pub(crate) fn build_tree_model_from_specs(
 
     let root_spec = link_specs
         .get(&root_name)
-        .ok_or(PinocchioError::InvalidModel("root link missing"))?;
+        .ok_or(PinocchioError::invalid_model("root link missing"))?;
     let mut links = vec![Link::root(
         root_name.clone(),
         root_spec.mass,
@@ -331,30 +419,45 @@ pub(crate) fn build_tree_model_from_specs(
     while let Some(parent_name) = queue.pop_front() {
         let parent_idx = *index_of
             .get(&parent_name)
-            .ok_or(PinocchioError::InvalidModel("parent index missing"))?;
+            .ok_or(PinocchioError::invalid_model("parent index missing"))?;
         let Some(children) = adjacency.get(&parent_name) else {
             continue;
         };
         for joint_spec in children {
             if index_of.contains_key(&joint_spec.child_link) {
-                return Err(PinocchioError::InvalidModel(
+                return Err(PinocchioError::invalid_model(
                     "graph has duplicate child links or cycles",
                 ));
             }
             let child_spec =
                 link_specs
                     .get(&joint_spec.child_link)
-                    .ok_or(PinocchioError::InvalidModel(
+                    .ok_or(PinocchioError::invalid_model(
                         "joint references missing child link",
                     ))?;
-            let joint = Joint::revolute(
-                Vec3::new(joint_spec.axis[0], joint_spec.axis[1], joint_spec.axis[2]),
-                Vec3::new(
+            let joint = match joint_spec.jtype {
+                JointType::Revolute => Joint::revolute(
+                    Vec3::new(joint_spec.axis[0], joint_spec.axis[1], joint_spec.axis[2]),
+                    Vec3::new(
+                        joint_spec.origin[0],
+                        joint_spec.origin[1],
+                        joint_spec.origin[2],
+                    ),
+                ),
+                JointType::Prismatic => Joint::prismatic(
+                    Vec3::new(joint_spec.axis[0], joint_spec.axis[1], joint_spec.axis[2]),
+                    Vec3::new(
+                        joint_spec.origin[0],
+                        joint_spec.origin[1],
+                        joint_spec.origin[2],
+                    ),
+                ),
+                JointType::Fixed => Joint::fixed(Vec3::new(
                     joint_spec.origin[0],
                     joint_spec.origin[1],
                     joint_spec.origin[2],
-                ),
-            );
+                )),
+            };
             links.push(Link::child(
                 joint_spec.child_link.clone(),
                 parent_idx,
@@ -370,7 +473,7 @@ pub(crate) fn build_tree_model_from_specs(
     }
 
     if index_of.len() != link_specs.len() {
-        return Err(PinocchioError::InvalidModel(match source_name {
+        return Err(PinocchioError::invalid_model(match source_name {
             "urdf" => "urdf graph is disconnected from root",
             "sdf" => "sdf graph is disconnected from root",
             "mjcf" => "mjcf graph is disconnected from root",
@@ -401,10 +504,11 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(model: &Model) -> Self {
         let nlinks = model.nlinks();
+        let njoints = model.njoints();
         Self {
             world_pose: vec![Transform::identity(); nlinks],
-            world_joint_axis: vec![Vec3::zero(); model.nv()],
-            world_joint_origin: vec![Vec3::zero(); model.nv()],
+            world_joint_axis: vec![Vec3::zero(); njoints],
+            world_joint_origin: vec![Vec3::zero(); njoints],
             omega: vec![Vec3::zero(); nlinks],
             vel_origin: vec![Vec3::zero(); nlinks],
             alpha: vec![Vec3::zero(); nlinks],

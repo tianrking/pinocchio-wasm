@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{Model, Workspace};
+use crate::model::{JointType, Model, Workspace};
 
 use super::contact::ContactPoint;
 use super::dynamics::is_ancestor;
@@ -27,23 +27,36 @@ pub fn frame_jacobian(
     let mut jac = vec![0.0; 6 * n];
     let p_target = ws.world_pose[target_link].translation;
 
-    for j in 0..n {
+    for j in 0..model.njoints() {
         let link_of_joint = model.joint_link(j).expect("validated model");
         if !is_ancestor(model, link_of_joint, target_link) {
             continue;
         }
+        // Skip fixed joints (they have nv=0, no column in the Jacobian)
+        let joint = model.links[link_of_joint]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        if joint.nv() == 0 {
+            continue;
+        }
 
+        let vi = model.idx_v(j);
         let axis = ws.world_joint_axis[j];
         let origin = ws.world_joint_origin[j];
-        let lin = axis.cross(p_target - origin);
-        let col_base = j;
 
-        jac[col_base] = lin.x;
-        jac[n + col_base] = lin.y;
-        jac[2 * n + col_base] = lin.z;
-        jac[3 * n + col_base] = axis.x;
-        jac[4 * n + col_base] = axis.y;
-        jac[5 * n + col_base] = axis.z;
+        let (lin, ang) = match joint.jtype {
+            JointType::Revolute => (axis.cross(p_target - origin), axis),
+            JointType::Prismatic => (axis, Vec3::zero()),
+            JointType::Fixed => continue,
+        };
+
+        jac[vi] = lin.x;
+        jac[n + vi] = lin.y;
+        jac[2 * n + vi] = lin.z;
+        jac[3 * n + vi] = ang.x;
+        jac[4 * n + vi] = ang.y;
+        jac[5 * n + vi] = ang.z;
     }
 
     Ok(jac)

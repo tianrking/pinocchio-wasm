@@ -6,7 +6,7 @@ use super::{
 };
 use crate::collision::{self, CollisionModel, Geometry, Sphere};
 use crate::core::math::{Mat3, Vec3};
-use crate::model::{Joint, Link, Model, Workspace};
+use crate::model::{Joint, JointType, Link, Model, Workspace};
 use core::ptr;
 
 #[unsafe(no_mangle)]
@@ -67,6 +67,7 @@ pub extern "C" fn pino_model_create(
     masses: *const f64,
     coms_xyz: *const f64,
     inertias_row_major: *const f64,
+    joint_types_i32: *const i32,
 ) -> *mut ModelHandle {
     if nlinks == 0 {
         return ptr::null_mut();
@@ -79,6 +80,7 @@ pub extern "C" fn pino_model_create(
         let masses = unsafe { as_slice(masses, nlinks)? };
         let coms = unsafe { as_slice(coms_xyz, 3 * nlinks)? };
         let inertias = unsafe { as_slice(inertias_row_major, 9 * nlinks)? };
+        let jtypes = unsafe { as_slice(joint_types_i32, nlinks)? };
 
         let mut links = Vec::with_capacity(nlinks);
         for i in 0..nlinks {
@@ -106,7 +108,17 @@ pub extern "C" fn pino_model_create(
             let parent = usize::try_from(parents[i]).map_err(|_| Status::InvalidInput)?;
             let axis = Vec3::new(axes[3 * i], axes[3 * i + 1], axes[3 * i + 2]);
             let origin = Vec3::new(origins[3 * i], origins[3 * i + 1], origins[3 * i + 2]);
-            let joint = Joint::revolute(axis, origin);
+            let jtype = match jtypes[i] {
+                0 => JointType::Revolute,
+                1 => JointType::Prismatic,
+                2 => JointType::Fixed,
+                _ => return Err(Status::InvalidInput),
+            };
+            let joint = match jtype {
+                JointType::Revolute => Joint::revolute(axis, origin),
+                JointType::Prismatic => Joint::prismatic(axis, origin),
+                JointType::Fixed => Joint::fixed(origin),
+            };
             links.push(Link::child(
                 format!("link_{i}"),
                 parent,

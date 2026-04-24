@@ -8,4 +8,4 @@ pub mod model;
 pub mod visualization;
 
 pub use core::error::{PinocchioError, Result};
-pub use model::{Joint, Link, Model, Workspace};
+pub use model::{Joint, JointType, Link, Model, Workspace};

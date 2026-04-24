@@ -1,15 +1,16 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Mat3;
 use crate::model::{
-    Model, UrdfJointSpec, UrdfLinkSpec, build_tree_model_from_specs, fmt_pose_xyz, fmt_vec3,
-    parse_pose_xyz_text, parse_sdf_inertia_node, parse_vec3_text, required_attr, text_of_child,
+    JointType, Model, UrdfJointSpec, UrdfLinkSpec, build_tree_model_from_specs, fmt_pose_xyz,
+    fmt_vec3, parse_pose_xyz_text, parse_sdf_inertia_node, parse_vec3_text, required_attr,
+    text_of_child,
 };
 use std::collections::BTreeMap;
 
 impl Model {
     pub fn to_sdf_string(&self, model_name: &str) -> Result<String> {
         if self.links.is_empty() {
-            return Err(PinocchioError::InvalidModel("model must not be empty"));
+            return Err(PinocchioError::invalid_model("model must not be empty"));
         }
         let mut out = String::new();
         out.push_str("<sdf version=\"1.7\">\n");
@@ -52,14 +53,21 @@ impl Model {
             out.push_str("    </link>\n");
         }
         for (idx, l) in self.links.iter().enumerate().skip(1) {
-            let parent = l
-                .parent
-                .ok_or(PinocchioError::InvalidModel("non-root link missing parent"))?;
+            let parent = l.parent.ok_or(PinocchioError::invalid_model(
+                "non-root link missing parent",
+            ))?;
             let joint = l
                 .joint
                 .as_ref()
-                .ok_or(PinocchioError::InvalidModel("non-root link missing joint"))?;
-            out.push_str(&format!("    <joint name=\"j{idx}\" type=\"revolute\">\n"));
+                .ok_or(PinocchioError::invalid_model("non-root link missing joint"))?;
+            let type_str = match joint.jtype {
+                JointType::Revolute => "revolute",
+                JointType::Prismatic => "prismatic",
+                JointType::Fixed => "fixed",
+            };
+            out.push_str(&format!(
+                "    <joint name=\"j{idx}\" type=\"{type_str}\">\n"
+            ));
             out.push_str(&format!(
                 "      <parent>{}</parent>\n",
                 self.links[parent].name
@@ -73,12 +81,14 @@ impl Model {
                     joint.origin.translation.z
                 ])
             ));
-            out.push_str("      <axis>\n");
-            out.push_str(&format!(
-                "        <xyz>{}</xyz>\n",
-                fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
-            ));
-            out.push_str("      </axis>\n");
+            if joint.jtype != JointType::Fixed {
+                out.push_str("      <axis>\n");
+                out.push_str(&format!(
+                    "        <xyz>{}</xyz>\n",
+                    fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
+                ));
+                out.push_str("      </axis>\n");
+            }
             out.push_str("    </joint>\n");
         }
         out.push_str("  </model>\n");
@@ -88,9 +98,9 @@ impl Model {
 
     pub fn from_sdf_str(input: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(input)
-            .map_err(|_| PinocchioError::InvalidModel("failed to parse sdf xml"))?;
+            .map_err(|_| PinocchioError::invalid_model("failed to parse sdf xml"))?;
         let model_node = doc.descendants().find(|n| n.has_tag_name("model")).ok_or(
-            PinocchioError::InvalidModel("sdf must contain a <model> element"),
+            PinocchioError::invalid_model("sdf must contain a <model> element"),
         )?;
 
         let mut link_specs: BTreeMap<String, UrdfLinkSpec> = BTreeMap::new();
@@ -118,7 +128,7 @@ impl Model {
             link_specs.insert(name, UrdfLinkSpec { mass, com, inertia });
         }
         if link_specs.is_empty() {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "sdf model must contain at least one <link>",
             ));
         }
@@ -126,15 +136,20 @@ impl Model {
         let mut joints: Vec<UrdfJointSpec> = Vec::new();
         for joint_node in model_node.children().filter(|n| n.has_tag_name("joint")) {
             let joint_type = required_attr(joint_node, "type")?;
-            if joint_type != "revolute" && joint_type != "continuous" {
-                return Err(PinocchioError::InvalidModel(
-                    "only revolute/continuous joints are supported in sdf loader",
-                ));
-            }
+            let jtype = match joint_type.as_str() {
+                "revolute" | "continuous" => JointType::Revolute,
+                "prismatic" => JointType::Prismatic,
+                "fixed" => JointType::Fixed,
+                other => {
+                    return Err(PinocchioError::invalid_model(format!(
+                        "unsupported joint type '{other}' in sdf loader (only revolute/continuous/prismatic/fixed supported)"
+                    )));
+                }
+            };
             let parent_link = text_of_child(joint_node, "parent")
-                .ok_or(PinocchioError::InvalidModel("joint must contain <parent>"))?;
+                .ok_or(PinocchioError::invalid_model("joint must contain <parent>"))?;
             let child_link = text_of_child(joint_node, "child")
-                .ok_or(PinocchioError::InvalidModel("joint must contain <child>"))?;
+                .ok_or(PinocchioError::invalid_model("joint must contain <child>"))?;
             let origin = text_of_child(joint_node, "pose")
                 .map(parse_pose_xyz_text)
                 .transpose()?
@@ -151,6 +166,7 @@ impl Model {
                 child_link,
                 axis,
                 origin,
+                jtype,
             });
         }
 

@@ -1,7 +1,7 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Mat3;
 use crate::model::{
-    Model, UrdfJointSpec, UrdfLinkSpec, build_tree_model_from_specs, fmt_vec3,
+    JointType, Model, UrdfJointSpec, UrdfLinkSpec, build_tree_model_from_specs, fmt_vec3,
     parse_urdf_inertia_node, parse_xyz_node, required_attr,
 };
 use std::collections::BTreeMap;
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 impl Model {
     pub fn to_urdf_string(&self, robot_name: &str) -> Result<String> {
         if self.links.is_empty() {
-            return Err(PinocchioError::InvalidModel("model must not be empty"));
+            return Err(PinocchioError::invalid_model("model must not be empty"));
         }
         let mut out = String::new();
         out.push_str(&format!("<robot name=\"{robot_name}\">\n"));
@@ -34,14 +34,19 @@ impl Model {
             out.push_str("  </link>\n");
         }
         for (idx, l) in self.links.iter().enumerate().skip(1) {
-            let parent = l
-                .parent
-                .ok_or(PinocchioError::InvalidModel("non-root link missing parent"))?;
+            let parent = l.parent.ok_or(PinocchioError::invalid_model(
+                "non-root link missing parent",
+            ))?;
             let joint = l
                 .joint
                 .as_ref()
-                .ok_or(PinocchioError::InvalidModel("non-root link missing joint"))?;
-            out.push_str(&format!("  <joint name=\"j{idx}\" type=\"revolute\">\n"));
+                .ok_or(PinocchioError::invalid_model("non-root link missing joint"))?;
+            let type_str = match joint.jtype {
+                JointType::Revolute => "revolute",
+                JointType::Prismatic => "prismatic",
+                JointType::Fixed => "fixed",
+            };
+            out.push_str(&format!("  <joint name=\"j{idx}\" type=\"{type_str}\">\n"));
             out.push_str(&format!(
                 "    <parent link=\"{}\"/>\n",
                 self.links[parent].name
@@ -55,10 +60,12 @@ impl Model {
                     joint.origin.translation.z
                 ])
             ));
-            out.push_str(&format!(
-                "    <axis xyz=\"{}\"/>\n",
-                fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
-            ));
+            if joint.jtype != JointType::Fixed {
+                out.push_str(&format!(
+                    "    <axis xyz=\"{}\"/>\n",
+                    fmt_vec3([joint.axis.x, joint.axis.y, joint.axis.z])
+                ));
+            }
             out.push_str("  </joint>\n");
         }
         out.push_str("</robot>\n");
@@ -67,9 +74,9 @@ impl Model {
 
     pub fn from_urdf_str(input: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(input)
-            .map_err(|_| PinocchioError::InvalidModel("failed to parse urdf xml"))?;
+            .map_err(|_| PinocchioError::invalid_model("failed to parse urdf xml"))?;
         let robot = doc.descendants().find(|n| n.has_tag_name("robot")).ok_or(
-            PinocchioError::InvalidModel("urdf must contain <robot> root"),
+            PinocchioError::invalid_model("urdf must contain <robot> root"),
         )?;
 
         let mut link_specs: BTreeMap<String, UrdfLinkSpec> = BTreeMap::new();
@@ -102,7 +109,7 @@ impl Model {
             link_specs.insert(name, UrdfLinkSpec { mass, com, inertia });
         }
         if link_specs.is_empty() {
-            return Err(PinocchioError::InvalidModel(
+            return Err(PinocchioError::invalid_model(
                 "urdf must contain at least one <link>",
             ));
         }
@@ -110,16 +117,21 @@ impl Model {
         let mut joints: Vec<UrdfJointSpec> = Vec::new();
         for joint_node in robot.children().filter(|n| n.has_tag_name("joint")) {
             let joint_type = required_attr(joint_node, "type")?;
-            if joint_type != "revolute" && joint_type != "continuous" {
-                return Err(PinocchioError::InvalidModel(
-                    "only revolute/continuous joints are supported in urdf loader",
-                ));
-            }
+            let jtype = match joint_type.as_str() {
+                "revolute" | "continuous" => JointType::Revolute,
+                "prismatic" => JointType::Prismatic,
+                "fixed" => JointType::Fixed,
+                other => {
+                    return Err(PinocchioError::invalid_model(format!(
+                        "unsupported joint type '{other}' in urdf loader (only revolute/continuous/prismatic/fixed supported)"
+                    )));
+                }
+            };
             let parent_link = joint_node
                 .children()
                 .find(|n| n.has_tag_name("parent"))
                 .and_then(|n| n.attribute("link"))
-                .ok_or(PinocchioError::InvalidModel(
+                .ok_or(PinocchioError::invalid_model(
                     "joint must contain <parent link=\"...\">",
                 ))?
                 .to_string();
@@ -127,7 +139,7 @@ impl Model {
                 .children()
                 .find(|n| n.has_tag_name("child"))
                 .and_then(|n| n.attribute("link"))
-                .ok_or(PinocchioError::InvalidModel(
+                .ok_or(PinocchioError::invalid_model(
                     "joint must contain <child link=\"...\">",
                 ))?
                 .to_string();
@@ -148,6 +160,7 @@ impl Model {
                 child_link,
                 origin,
                 axis,
+                jtype,
             });
         }
 

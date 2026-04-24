@@ -68,7 +68,7 @@ pub fn constrained_aba_locked_joints_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,

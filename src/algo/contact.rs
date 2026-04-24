@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{Model, Workspace};
+use crate::model::{JointType, Model, Workspace};
 
 use super::dynamics::{cholesky_solve, crba, is_ancestor};
 use super::kinematics::forward_kinematics;
@@ -67,7 +67,7 @@ pub(super) fn contact_jacobian_row(
     let n = model.nv();
     let normal_norm = contact.normal_world.norm();
     if normal_norm <= 1e-12 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "contact normal must be non-zero",
         ));
     }
@@ -75,15 +75,27 @@ pub(super) fn contact_jacobian_row(
     let p_world = ws.world_pose[contact.link_index].transform_point(contact.point_local);
     let mut jrow = vec![0.0; n];
 
-    for (j, cell) in jrow.iter_mut().enumerate().take(n) {
+    for j in 0..model.njoints() {
         let link_of_joint = model.joint_link(j).expect("validated model");
         if !is_ancestor(model, link_of_joint, contact.link_index) {
             continue;
         }
+        let joint = model.links[link_of_joint]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        if joint.nv() == 0 {
+            continue;
+        }
+        let vi = model.idx_v(j);
         let axis = ws.world_joint_axis[j];
         let origin = ws.world_joint_origin[j];
-        let lin = axis.cross(p_world - origin);
-        *cell = normal.dot(lin);
+        let lin = match joint.jtype {
+            JointType::Revolute => axis.cross(p_world - origin),
+            JointType::Prismatic => axis,
+            JointType::Fixed => continue,
+        };
+        jrow[vi] = normal.dot(lin);
     }
     Ok(jrow)
 }
@@ -104,7 +116,7 @@ pub(super) fn solve_m_inv_jt_columns(
 fn contact_tangent_basis(normal_world: Vec3) -> Result<(Vec3, Vec3, Vec3)> {
     let nrm = normal_world.norm();
     if nrm <= 1e-12 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "contact normal must be non-zero",
         ));
     }
@@ -117,7 +129,7 @@ fn contact_tangent_basis(normal_world: Vec3) -> Result<(Vec3, Vec3, Vec3)> {
     let t1_raw = n.cross(helper);
     let t1_norm = t1_raw.norm();
     if t1_norm <= 1e-12 {
-        return Err(PinocchioError::InvalidModel(
+        return Err(PinocchioError::invalid_model(
             "failed to build tangent basis",
         ));
     }
@@ -227,10 +239,10 @@ pub fn constrained_forward_dynamics_contacts_batch(
     let k = contacts.len();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_lambda = batch_size
         .checked_mul(k)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -291,7 +303,7 @@ pub fn apply_contact_impulses(
     let n = model.nv();
     model.check_state_dims(q, qd_minus, None)?;
     if restitution < 0.0 {
-        return Err(PinocchioError::InvalidModel("restitution must be >= 0"));
+        return Err(PinocchioError::invalid_model("restitution must be >= 0"));
     }
     if contacts.is_empty() {
         return Ok(ContactImpulseResult {
@@ -372,10 +384,10 @@ pub fn apply_contact_impulses_batch(
     let k = contacts.len();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_impulse = batch_size
         .checked_mul(k)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -577,16 +589,16 @@ pub fn constrained_forward_dynamics_contacts_friction_batch(
     let k = contacts.len();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_k = batch_size
         .checked_mul(k)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_t = expected_k
         .checked_mul(2)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_f = expected_k
         .checked_mul(3)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected
         || qd_batch.len() != expected
         || tau_batch.len() != expected
@@ -654,7 +666,7 @@ pub fn apply_contact_impulses_friction(
     let n = model.nv();
     model.check_state_dims(q, qd_minus, None)?;
     if restitution < 0.0 {
-        return Err(PinocchioError::InvalidModel("restitution must be >= 0"));
+        return Err(PinocchioError::invalid_model("restitution must be >= 0"));
     }
     if contacts.is_empty() {
         return Ok(FrictionContactImpulseResult {
@@ -792,16 +804,16 @@ pub fn apply_contact_impulses_friction_batch(
     let k = contacts.len();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_k = batch_size
         .checked_mul(k)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_t = expected_k
         .checked_mul(2)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_w = expected_k
         .checked_mul(3)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
 
     if q_batch.len() != expected
         || qd_minus_batch.len() != expected

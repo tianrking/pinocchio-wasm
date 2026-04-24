@@ -8,9 +8,24 @@
 extern "C" {
 #endif
 
+/* Joint type constants for pino_model_create */
+#define PINO_JOINT_REVOLUTE  0
+#define PINO_JOINT_PRISMATIC 1
+#define PINO_JOINT_FIXED     2
+
 int32_t pino_status_ok(void);
 uint8_t *pino_alloc(size_t size);
 void pino_dealloc(uint8_t *ptr, size_t size);
+
+void *pino_model_create(
+    size_t nlinks,
+    const int32_t *parent_indices,
+    const double *joint_axes_xyz,
+    const double *joint_origins_xyz,
+    const double *masses,
+    const double *coms_xyz,
+    const double *inertias_row_major,
+    const int32_t *joint_types_i32);
 
 void *pino_model_create_from_json(const uint8_t *json_ptr, size_t json_len);
 void *pino_model_create_from_urdf(const uint8_t *urdf_ptr, size_t urdf_len);

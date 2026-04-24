@@ -35,8 +35,8 @@ fn regressor_family_smoke() {
     let q = [0.2, -0.3];
     let qd = [0.4, 0.1];
     let qdd = [0.3, -0.2];
-    let y = inverse_dynamics_regressor(&m, &q, &qd, &qdd, Vec3::new(0.0, 0.0, -9.81))
-        .expect("id reg");
+    let y =
+        inverse_dynamics_regressor(&m, &q, &qd, &qdd, Vec3::new(0.0, 0.0, -9.81)).expect("id reg");
     let rows = m.nv();
     let cols = 10 * m.nlinks();
     assert_eq!(y.len(), rows * cols);

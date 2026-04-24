@@ -27,8 +27,7 @@ fn autodiff_and_fd_smoke() {
     assert!(y.value.is_finite());
     assert!(y.grad.is_finite());
 
-    let j = jacobian_fd(&[1.0, 2.0], 2, |x| Ok(vec![x[0] * x[0], x[0] + x[1]]))
-        .expect("jac fd");
+    let j = jacobian_fd(&[1.0, 2.0], 2, |x| Ok(vec![x[0] * x[0], x[0] + x[1]])).expect("jac fd");
     assert_eq!(j.len(), 4);
 }
 

@@ -55,18 +55,51 @@ fn build_model_from_urdf() {
 }
 
 #[test]
-fn reject_non_revolute_urdf_joint() {
+fn accept_fixed_and_prismatic_urdf_joints() {
     let urdf = r#"
-    <robot name="bad">
+    <robot name="mixed">
       <link name="base"/>
       <link name="l1"/>
+      <link name="l2"/>
       <joint name="j1" type="fixed">
         <parent link="base"/>
         <child link="l1"/>
+        <origin xyz="1 0 0"/>
+      </joint>
+      <joint name="j2" type="prismatic">
+        <parent link="l1"/>
+        <child link="l2"/>
+        <origin xyz="0 0 0"/>
+        <axis xyz="0 0 1"/>
       </joint>
     </robot>
     "#;
 
-    let err = Model::from_urdf_str(urdf).expect_err("must reject fixed joint");
-    assert!(format!("{err}").contains("supported"));
+    let model = Model::from_urdf_str(urdf).expect("must accept fixed/prismatic joints");
+    assert_eq!(model.nlinks(), 3);
+    assert_eq!(
+        model.nq(),
+        1,
+        "fixed contributes 0, prismatic contributes 1"
+    );
+    assert_eq!(model.nv(), 1);
+}
+
+#[test]
+fn reject_unsupported_urdf_joint() {
+    let urdf = r#"
+    <robot name="bad">
+      <link name="base"/>
+      <link name="l1"/>
+      <joint name="j1" type="planar">
+        <parent link="base"/>
+        <child link="l1"/>
+        <origin xyz="0 0 0"/>
+        <axis xyz="0 0 1"/>
+      </joint>
+    </robot>
+    "#;
+
+    let err = Model::from_urdf_str(urdf).expect_err("must reject unsupported joint type");
+    assert!(format!("{err}").contains("unsupported"));
 }

@@ -2,10 +2,16 @@ use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PinocchioError {
-    InvalidModel(&'static str),
+    InvalidModel(String),
     DimensionMismatch { expected: usize, got: usize },
     SingularMatrix,
     IndexOutOfBounds { index: usize, len: usize },
+}
+
+impl PinocchioError {
+    pub fn invalid_model(msg: impl Into<String>) -> Self {
+        PinocchioError::InvalidModel(msg.into())
+    }
 }
 
 impl fmt::Display for PinocchioError {

@@ -17,7 +17,7 @@ pub fn rnea_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -71,7 +71,7 @@ pub fn aba_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -124,7 +124,7 @@ pub fn bias_forces_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -163,7 +163,7 @@ pub fn gravity_torques_batch(
     let n = model.nv();
     let expected = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
             expected,
@@ -195,11 +195,11 @@ pub fn crba_batch(
     let n = model.nv();
     let expected_q = batch_size
         .checked_mul(n)
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_m = batch_size
         .checked_mul(n)
         .and_then(|x| x.checked_mul(n))
-        .ok_or(PinocchioError::InvalidModel("batch size overflow"))?;
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected_q {
         return Err(PinocchioError::DimensionMismatch {
             expected: expected_q,

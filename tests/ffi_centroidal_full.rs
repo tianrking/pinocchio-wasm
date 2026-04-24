@@ -35,11 +35,25 @@ fn ffi_centroidal_full_smoke() {
 
     let mut m = [0.0_f64; 6];
     let mut com = [0.0_f64; 3];
-    let s = pino_centroidal_momentum(model, ws, q.as_ptr(), qd.as_ptr(), m.as_mut_ptr(), com.as_mut_ptr());
+    let s = pino_centroidal_momentum(
+        model,
+        ws,
+        q.as_ptr(),
+        qd.as_ptr(),
+        m.as_mut_ptr(),
+        com.as_mut_ptr(),
+    );
     assert_eq!(s, 0);
 
     let mut hdot = [0.0_f64; 6];
-    let s = pino_centroidal_momentum_rate(model, ws, q.as_ptr(), qd.as_ptr(), qdd.as_ptr(), hdot.as_mut_ptr());
+    let s = pino_centroidal_momentum_rate(
+        model,
+        ws,
+        q.as_ptr(),
+        qd.as_ptr(),
+        qdd.as_ptr(),
+        hdot.as_mut_ptr(),
+    );
     assert_eq!(s, 0);
 
     let mut ag2 = [0.0_f64; 12];

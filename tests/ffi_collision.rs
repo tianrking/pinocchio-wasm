@@ -2,8 +2,8 @@ use pinocchio_wasm::ffi::{
     pino_collision_min_distance, pino_collision_min_distance_batch,
     pino_collision_min_distance_detailed, pino_collision_min_distance_detailed_batch,
     pino_collision_model_create, pino_collision_model_create_geometries, pino_collision_model_free,
-    pino_collision_query_details, pino_model_create_from_json, pino_model_free, pino_workspace_free,
-    pino_workspace_new,
+    pino_collision_query_details, pino_model_create_from_json, pino_model_free,
+    pino_workspace_free, pino_workspace_new,
 };
 
 #[test]

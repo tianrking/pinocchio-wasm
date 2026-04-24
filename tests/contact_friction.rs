@@ -72,15 +72,9 @@ fn friction_impulse_smoke() {
         friction_coeff: 0.5,
     }];
 
-    let out = apply_contact_impulses_friction(
-        &model,
-        &[0.0, 0.0],
-        &[1.2, -0.3],
-        &contacts,
-        0.0,
-        &mut ws,
-    )
-    .expect("impulse");
+    let out =
+        apply_contact_impulses_friction(&model, &[0.0, 0.0], &[1.2, -0.3], &contacts, 0.0, &mut ws)
+            .expect("impulse");
 
     assert_eq!(out.qd_plus.len(), model.nv());
     assert_eq!(out.impulse_normal.len(), 1);

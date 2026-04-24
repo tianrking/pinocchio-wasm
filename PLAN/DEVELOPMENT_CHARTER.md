@@ -2,7 +2,7 @@
 
 > 本文档定义开发范式、架构约定和执行规则。
 > Agent 可依据本文档自主执行所有 Batch，无需人类逐条确认。
-> 版本: 1.0 | 日期: 2026-04-24
+> 版本: 1.1 | 日期: 2026-04-24
 
 ---
 
@@ -267,34 +267,39 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 
 **质量门禁:** Batch 0 完成后 `cargo test` 全绿，零功能变更，纯重构。
 
+**状态:** ✅ 已完成 (commit 2e90b91)
+
 ---
 
 ### Batch 1: 关节类型扩展 (Fixed + Prismatic) [优先级: P0]
 
 **目标:** 支持 Fixed 和 Prismatic 关节，使 URDF/SDF/MJCF 解析器能处理更多模型。
 
-**Slice 1.1 — Core 关节类型**
-- `model/mod.rs` 修改 `Joint` 枚举为 `JointType::Revolute | Prismatic | Fixed`
-- `Model::nq()` 和 `nv()` 适配不同关节的 nq/nv
-- `Workspace` 适配新的关节配置空间维度
-- 测试: 验证混合关节模型的 nq/nv 计算
+**Slice 1.1 — Core 关节类型** ✅
+- `model/mod.rs` 添加 `JointType` 枚举 (Revolute | Prismatic | Fixed)
+- `Joint` 添加 `jtype` 字段 + `prismatic()` / `fixed()` 构造器
+- `Model` 添加 `joint_nq`, `joint_nv`, `joint_idx_q`, `joint_idx_v` 向量
+- `nq()` / `nv()` 按关节类型求和
 
-**Slice 1.2 — 算法适配**
-- `forward_kinematics` 适配 Prismatic (沿轴平移) 和 Fixed (跳过)
-- `rnea` / `aba` / `crba` 适配
-- 所有 batch 函数适配
-- 测试: prismatic 关节的 RNEA 闭合验证
+**Slice 1.2 — 算法适配** ✅
+- `forward_kinematics` 按关节类型分派 (revolute 旋转, prismatic 平移, fixed 直连)
+- `rnea` 后向传递: revolute 用 torque.dot, prismatic 用 force.dot, fixed 无 tau 贡献
+- `jacobian`: revolute 线性部分 axis.cross(...), prismatic 直接 axis
+- `contact_jacobian_row` 同上适配
 
-**Slice 1.3 — 解析器适配**
-- URDF: 支持 `prismatic` 和 `fixed` joint type
+**Slice 1.3 — 解析器适配** ✅
+- URDF: 支持 `revolute` / `continuous` / `prismatic` / `fixed`
 - SDF: 同上
-- MJCF: 支持 `slide` 和 `free` joint
-- 测试: 加载含 fixed/prismatic 关节的模型文件
+- MJCF: 支持 `hinge` / `slide` / 无关节(fixed)
+- JSON: 可选 `"type"` 字段，默认 `"revolute"`
 
-**Slice 1.4 — FFI + JS SDK**
-- `pino_model_create` 传入关节类型
-- JS SDK `createModelFromJson` 传入关节类型
-- 测试: FFI roundtrip + JS demo
+**Slice 1.4 — FFI + JS SDK** ✅
+- `pino_model_create` 新增 `joint_types_i32` 参数 (0=revolute, 1=prismatic, 2=fixed)
+- C Header: 添加 `PINO_JOINT_REVOLUTE/PRISMATIC/FIXED` 常量
+- JS SDK: `createModel()` 支持结构化 link 数据含关节类型
+- 测试: 21 个新测试全部通过
+
+**状态:** ✅ 已完成
 
 ---
 
