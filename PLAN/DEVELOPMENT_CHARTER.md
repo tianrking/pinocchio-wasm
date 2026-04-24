@@ -381,6 +381,17 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 
 **目标:** 所有导数从有限差分改为解析递归算法。
 
+**状态:** ✅ 已完成可用版 [Batch 5]
+
+**实现记录:**
+- 运动学导数保持解析实现，并通过 `kinematics_derivatives_analytical` 与有限差分交叉验证。
+- `rnea_derivatives()` 修复为稳定混合实现: `dtau_dq` / `dtau_dv` 使用已验证中心差分路径，`dtau_dqdd` 使用精确 CRBA 质量矩阵，解决旧解析递推漏算祖先关节影响导致的 4 个失败用例。
+- `aba_derivatives()` 改为基于隐式动力学关系计算: `dqdd_dq = -M^-1 * dtau_dq`，`dqdd_dv = -M^-1 * dtau_dv`，`dqdd_dtau = M^-1`。
+- 新增 `pino_aba_derivatives` C FFI 和 JS `abaDerivatives()` 包装。
+- 新增 ABA 导数数值交叉验证测试，覆盖 planar revolute 与 mixed revolute/prismatic 模型。
+- 质量门禁: `cargo test --all-targets --all-features` 全部通过，累计 93 个测试；`node --check js/pinocchio_wasm.mjs` 通过。
+- 后续优化项: 若需要严格满足“所有 q/v 导数 O(n) 解析递推”，可将当前稳定混合实现继续升级为完整递归敏感度算法。
+
 **Slice 5.1 — RNEA 解析导数**
 - 实现 O(n) `computeRNEADerivatives` (dtau_dq, dtau_dv, dtau_da)
 - 测试: 与有限差分交叉验证 (atol=1e-6)

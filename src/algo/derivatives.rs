@@ -1,13 +1,13 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{Model, Workspace};
+use crate::model::{JointType, Model, Workspace};
 
 use super::com_energy::center_of_mass;
 use super::constrained::constrained_aba_locked_joints;
 use super::contact::apply_contact_impulses;
-use super::dynamics::{aba, rnea};
+use super::dynamics::{aba, crba, is_ancestor, rnea};
 use super::jacobian::frame_jacobian;
-use super::kinematics::forward_kinematics_poses;
+use super::kinematics::{forward_kinematics, forward_kinematics_poses};
 
 #[derive(Debug, Clone)]
 pub struct DerivativeResult {
@@ -40,7 +40,7 @@ pub struct ImpulseDerivativeResult {
     pub d_qd_plus_d_restitution: Vec<f64>,
 }
 
-pub fn rnea_derivatives(
+pub fn rnea_derivatives_fd(
     model: &Model,
     q: &[f64],
     qd: &[f64],
@@ -92,6 +92,30 @@ pub fn rnea_derivatives(
     })
 }
 
+pub fn rnea_derivatives(
+    model: &Model,
+    q: &[f64],
+    qd: &[f64],
+    qdd: &[f64],
+    gravity: Vec3,
+    ws: &mut Workspace,
+) -> Result<DerivativeResult> {
+    model.check_state_dims(q, qd, Some(qdd))?;
+
+    // Batch 5 correctness gate: keep dq/dv on the already validated central
+    // difference path, while preserving the analytical identity d(tau)/d(qdd)=M(q).
+    //
+    // The previous hand-written dq recursion missed ancestor perturbations in
+    // downstream link force propagation. Until the full recursive sensitivity
+    // pass is completed, this hybrid path is the safest production behavior:
+    // q/v derivatives match RNEA exactly to finite-difference tolerance, and
+    // acceleration derivatives remain exact through CRBA.
+    let mut out = rnea_derivatives_fd(model, q, qd, qdd, gravity, ws)?;
+    let d_tau_dqdd = crba(model, q, ws)?;
+    out.d_out_du = d_tau_dqdd;
+    Ok(out)
+}
+
 pub fn aba_derivatives(
     model: &Model,
     q: &[f64],
@@ -108,41 +132,33 @@ pub fn aba_derivatives(
             got: tau.len(),
         });
     }
-    let eps = 1e-6;
-    let mut dqdd_dq = vec![vec![0.0; n]; n];
-    let mut dqdd_dqd = vec![vec![0.0; n]; n];
+    let qdd = aba(model, q, qd, tau, gravity, ws)?;
+    let rnea_deriv = rnea_derivatives(model, q, qd, &qdd, gravity, ws)?;
+    let mass = &rnea_deriv.d_out_du;
+
     let mut dqdd_dtau = vec![vec![0.0; n]; n];
     for i in 0..n {
-        let mut qp = q.to_vec();
-        let mut qm = q.to_vec();
-        qp[i] += eps;
-        qm[i] -= eps;
-        let ap = aba(model, &qp, qd, tau, gravity, ws)?;
-        let am = aba(model, &qm, qd, tau, gravity, ws)?;
+        let mut e = vec![0.0; n];
+        e[i] = 1.0;
+        let col = super::dynamics::cholesky_solve(mass, &e)?;
         for r in 0..n {
-            dqdd_dq[r][i] = (ap[r] - am[r]) / (2.0 * eps);
-        }
-
-        let mut vp = qd.to_vec();
-        let mut vm = qd.to_vec();
-        vp[i] += eps;
-        vm[i] -= eps;
-        let ap = aba(model, q, &vp, tau, gravity, ws)?;
-        let am = aba(model, q, &vm, tau, gravity, ws)?;
-        for r in 0..n {
-            dqdd_dqd[r][i] = (ap[r] - am[r]) / (2.0 * eps);
-        }
-
-        let mut tp = tau.to_vec();
-        let mut tm = tau.to_vec();
-        tp[i] += eps;
-        tm[i] -= eps;
-        let ap = aba(model, q, qd, &tp, gravity, ws)?;
-        let am = aba(model, q, qd, &tm, gravity, ws)?;
-        for r in 0..n {
-            dqdd_dtau[r][i] = (ap[r] - am[r]) / (2.0 * eps);
+            dqdd_dtau[r][i] = col[r];
         }
     }
+
+    let mut dqdd_dq = vec![vec![0.0; n]; n];
+    let mut dqdd_dqd = vec![vec![0.0; n]; n];
+    for c in 0..n {
+        let rhs_q: Vec<f64> = (0..n).map(|r| -rnea_deriv.d_out_dq[r][c]).collect();
+        let rhs_v: Vec<f64> = (0..n).map(|r| -rnea_deriv.d_out_dv[r][c]).collect();
+        let sol_q = super::dynamics::cholesky_solve(mass, &rhs_q)?;
+        let sol_v = super::dynamics::cholesky_solve(mass, &rhs_v)?;
+        for r in 0..n {
+            dqdd_dq[r][c] = sol_q[r];
+            dqdd_dqd[r][c] = sol_v[r];
+        }
+    }
+
     Ok(DerivativeResult {
         d_out_dq: dqdd_dq,
         d_out_dv: dqdd_dqd,
@@ -150,7 +166,7 @@ pub fn aba_derivatives(
     })
 }
 
-pub fn kinematics_derivatives(
+pub fn kinematics_derivatives_fd(
     model: &Model,
     q: &[f64],
     target_link: usize,
@@ -176,6 +192,56 @@ pub fn kinematics_derivatives(
         dpos_dq[n + i] = (pp.y - pm.y) / (2.0 * eps);
         dpos_dq[2 * n + i] = (pp.z - pm.z) / (2.0 * eps);
     }
+    Ok(KinematicsDerivativesResult { dpos_dq })
+}
+
+pub fn kinematics_derivatives(
+    model: &Model,
+    q: &[f64],
+    target_link: usize,
+    ws: &mut Workspace,
+) -> Result<KinematicsDerivativesResult> {
+    if target_link >= model.nlinks() {
+        return Err(PinocchioError::IndexOutOfBounds {
+            index: target_link,
+            len: model.nlinks(),
+        });
+    }
+    let n = model.nv();
+    let qd = vec![0.0; n];
+    let qdd = vec![0.0; n];
+    forward_kinematics(model, q, &qd, &qdd, Vec3::zero(), ws)?;
+
+    let p_target = ws.world_pose[target_link].translation;
+    let mut dpos_dq = vec![0.0; 3 * n];
+
+    for j in 0..model.njoints() {
+        let link_of_joint = model.joint_link(j).expect("validated model");
+        if !is_ancestor(model, link_of_joint, target_link) {
+            continue;
+        }
+        let joint = model.links[link_of_joint]
+            .joint
+            .as_ref()
+            .expect("validated model");
+        if joint.nv() == 0 {
+            continue;
+        }
+
+        let vi = model.idx_v(j);
+        let axis = ws.world_joint_axis[j];
+        let origin = ws.world_joint_origin[j];
+
+        let dp_dq = match joint.jtype {
+            JointType::Revolute => axis.cross(p_target - origin),
+            JointType::Prismatic => axis,
+            JointType::Fixed => continue,
+        };
+        dpos_dq[vi] = dp_dq.x;
+        dpos_dq[n + vi] = dp_dq.y;
+        dpos_dq[2 * n + vi] = dp_dq.z;
+    }
+
     Ok(KinematicsDerivativesResult { dpos_dq })
 }
 

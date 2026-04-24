@@ -158,3 +158,108 @@ pub extern "C" fn pino_impulse_dynamics_derivatives(
         Ok(())
     }) as i32
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_kinematics_derivatives(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    target_link: usize,
+    dpos_dq_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let out_len = 3 * n;
+        let q = unsafe { as_slice(q, n)? };
+        let dpos_dq = unsafe { as_mut_slice(dpos_dq_out, out_len)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out = algo::kinematics_derivatives(model_ref, q, target_link, ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        dpos_dq.copy_from_slice(&out.dpos_dq);
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_rnea_derivatives(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    qdd: *const f64,
+    gravity_xyz: *const f64,
+    dtau_dq_out: *mut f64,
+    dtau_dqd_out: *mut f64,
+    dtau_dqdd_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let qdd = unsafe { as_slice(qdd, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let dq = unsafe { as_mut_slice(dtau_dq_out, mat)? };
+        let dv = unsafe { as_mut_slice(dtau_dqd_out, mat)? };
+        let da = unsafe { as_mut_slice(dtau_dqdd_out, mat)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out =
+            algo::rnea_derivatives(model_ref, q, qd, qdd, Vec3::new(g[0], g[1], g[2]), ws_ref)
+                .map_err(|_| Status::AlgoFailed)?;
+        for r in 0..n {
+            for c in 0..n {
+                dq[r * n + c] = out.d_out_dq[r][c];
+                dv[r * n + c] = out.d_out_dv[r][c];
+                da[r * n + c] = out.d_out_du[r][c];
+            }
+        }
+        Ok(())
+    }) as i32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pino_aba_derivatives(
+    model: *const ModelHandle,
+    ws: *mut WorkspaceHandle,
+    q: *const f64,
+    qd: *const f64,
+    tau: *const f64,
+    gravity_xyz: *const f64,
+    dqdd_dq_out: *mut f64,
+    dqdd_dqd_out: *mut f64,
+    dqdd_dtau_out: *mut f64,
+) -> i32 {
+    run_status(|| {
+        check_non_null(model)?;
+        check_non_null(ws as *const WorkspaceHandle)?;
+        check_non_null(gravity_xyz)?;
+        let model_ref = unsafe { &(*model).model };
+        let n = model_ref.nv();
+        let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let q = unsafe { as_slice(q, n)? };
+        let qd = unsafe { as_slice(qd, n)? };
+        let tau = unsafe { as_slice(tau, n)? };
+        let g = unsafe { as_slice(gravity_xyz, 3)? };
+        let dq = unsafe { as_mut_slice(dqdd_dq_out, mat)? };
+        let dv = unsafe { as_mut_slice(dqdd_dqd_out, mat)? };
+        let du = unsafe { as_mut_slice(dqdd_dtau_out, mat)? };
+        let ws_ref = unsafe { &mut (*ws).ws };
+        let out = algo::aba_derivatives(model_ref, q, qd, tau, Vec3::new(g[0], g[1], g[2]), ws_ref)
+            .map_err(|_| Status::AlgoFailed)?;
+        for r in 0..n {
+            for c in 0..n {
+                dq[r * n + c] = out.d_out_dq[r][c];
+                dv[r * n + c] = out.d_out_dv[r][c];
+                du[r * n + c] = out.d_out_du[r][c];
+            }
+        }
+        Ok(())
+    }) as i32
+}

@@ -1,7 +1,7 @@
 use pinocchio_wasm::ffi::{
-    pino_constrained_dynamics_derivatives_locked_joints, pino_impulse_dynamics_derivatives,
-    pino_model_create_from_json, pino_model_free, pino_rnea_second_order_derivatives,
-    pino_workspace_free, pino_workspace_new,
+    pino_aba_derivatives, pino_constrained_dynamics_derivatives_locked_joints,
+    pino_impulse_dynamics_derivatives, pino_model_create_from_json, pino_model_free,
+    pino_rnea_second_order_derivatives, pino_workspace_free, pino_workspace_new,
 };
 
 #[test]
@@ -39,6 +39,24 @@ fn ffi_derivatives_family_smoke() {
         d2u.as_mut_ptr(),
     );
     assert_eq!(s, 0);
+
+    let tau = [0.3, -0.1];
+    let mut adq = [0.0_f64; 4];
+    let mut adv = [0.0_f64; 4];
+    let mut adu = [0.0_f64; 4];
+    let s = pino_aba_derivatives(
+        model,
+        ws,
+        q.as_ptr(),
+        qd.as_ptr(),
+        tau.as_ptr(),
+        g.as_ptr(),
+        adq.as_mut_ptr(),
+        adv.as_mut_ptr(),
+        adu.as_mut_ptr(),
+    );
+    assert_eq!(s, 0);
+    assert!(adu.iter().all(|v| v.is_finite()));
 
     let locked = [0_i32, 1_i32];
     let mut dq = [0.0_f64; 4];

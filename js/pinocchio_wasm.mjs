@@ -1227,6 +1227,93 @@ export async function loadPinocchioWasm(wasmBytes) {
     return { d2TauDq2, d2TauDqd2, d2TauDqdd2 };
   }
 
+  function kinematicsDerivatives(model, ws, q, targetLink) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
+    const outLen = 3 * nq;
+
+    const qMem = writeF64Array(new Float64Array(q));
+    const outMem = writeF64Array(new Float64Array(outLen));
+
+    const code = w.pino_kinematics_derivatives(model, ws, qMem.ptr, targetLink, outMem.ptr);
+    if (code !== 0) throw new Error(`pino_kinematics_derivatives failed: ${code}`);
+
+    const dposDq = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + outLen));
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(outMem.ptr, outMem.bytes);
+    return dposDq;
+  }
+
+  function rneaDerivatives(model, ws, q, qd, qdd, g = [0, 0, -9.81]) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
+      throw new Error(`invalid state length: nq=${nq}`);
+    }
+    const mat = nq * nq;
+
+    const qMem = writeF64Array(new Float64Array(q));
+    const qdMem = writeF64Array(new Float64Array(qd));
+    const qddMem = writeF64Array(new Float64Array(qdd));
+    const gMem = writeF64Array(new Float64Array(g));
+    const dqMem = writeF64Array(new Float64Array(mat));
+    const dvMem = writeF64Array(new Float64Array(mat));
+    const daMem = writeF64Array(new Float64Array(mat));
+
+    const code = w.pino_rnea_derivatives(
+      model, ws, qMem.ptr, qdMem.ptr, qddMem.ptr, gMem.ptr,
+      dqMem.ptr, dvMem.ptr, daMem.ptr
+    );
+    if (code !== 0) throw new Error(`pino_rnea_derivatives failed: ${code}`);
+
+    const dTauDq = Array.from(memoryF64().slice(dqMem.ptr / 8, dqMem.ptr / 8 + mat));
+    const dTauDqd = Array.from(memoryF64().slice(dvMem.ptr / 8, dvMem.ptr / 8 + mat));
+    const dTauDqdd = Array.from(memoryF64().slice(daMem.ptr / 8, daMem.ptr / 8 + mat));
+
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(qdMem.ptr, qdMem.bytes);
+    freeBytes(qddMem.ptr, qddMem.bytes);
+    freeBytes(gMem.ptr, gMem.bytes);
+    freeBytes(dqMem.ptr, dqMem.bytes);
+    freeBytes(dvMem.ptr, dvMem.bytes);
+    freeBytes(daMem.ptr, daMem.bytes);
+    return { dTauDq, dTauDqd, dTauDqdd };
+  }
+
+  function abaDerivatives(model, ws, q, qd, tau, g = [0, 0, -9.81]) {
+    const nq = Number(w.pino_model_nq(model));
+    if (q.length !== nq || qd.length !== nq || tau.length !== nq) {
+      throw new Error(`invalid state length: nq=${nq}`);
+    }
+    const mat = nq * nq;
+
+    const qMem = writeF64Array(new Float64Array(q));
+    const qdMem = writeF64Array(new Float64Array(qd));
+    const tauMem = writeF64Array(new Float64Array(tau));
+    const gMem = writeF64Array(new Float64Array(g));
+    const dqMem = writeF64Array(new Float64Array(mat));
+    const dvMem = writeF64Array(new Float64Array(mat));
+    const dtauMem = writeF64Array(new Float64Array(mat));
+
+    const code = w.pino_aba_derivatives(
+      model, ws, qMem.ptr, qdMem.ptr, tauMem.ptr, gMem.ptr,
+      dqMem.ptr, dvMem.ptr, dtauMem.ptr
+    );
+    if (code !== 0) throw new Error(`pino_aba_derivatives failed: ${code}`);
+
+    const dQddDq = Array.from(memoryF64().slice(dqMem.ptr / 8, dqMem.ptr / 8 + mat));
+    const dQddDqd = Array.from(memoryF64().slice(dvMem.ptr / 8, dvMem.ptr / 8 + mat));
+    const dQddDtau = Array.from(memoryF64().slice(dtauMem.ptr / 8, dtauMem.ptr / 8 + mat));
+
+    freeBytes(qMem.ptr, qMem.bytes);
+    freeBytes(qdMem.ptr, qdMem.bytes);
+    freeBytes(tauMem.ptr, tauMem.bytes);
+    freeBytes(gMem.ptr, gMem.bytes);
+    freeBytes(dqMem.ptr, dqMem.bytes);
+    freeBytes(dvMem.ptr, dvMem.bytes);
+    freeBytes(dtauMem.ptr, dtauMem.bytes);
+    return { dQddDq, dQddDqd, dQddDtau };
+  }
+
   // ---------------------------------------------------------------------------
   // Constrained
   // ---------------------------------------------------------------------------
@@ -1322,6 +1409,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
     // Derivatives
     rneaSecondOrderDerivatives,
+    kinematicsDerivatives,
+    rneaDerivatives,
+    abaDerivatives,
 
     // Constrained
     constrainedAbaLockedJoints,
