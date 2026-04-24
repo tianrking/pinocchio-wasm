@@ -410,6 +410,19 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 
 **目标:** 支持浮动基和球关节，可建模人形/四足机器人。
 
+**状态:** ✅ 已完成可用版 [Batch 6]
+
+**实现记录:**
+- 新增 `JointType::Spherical` (nq=4/nv=3) 与 `JointType::FreeFlyer` (nq=7/nv=6)，模型索引拆分为 `idx_q`/`idx_v`，状态检查正式支持 `nq != nv`。
+- FK/RNEA/Jacobian/CRBA/ABA/Contact/Collision/Centroidal/Regressor/Batch/Constrained/Derivatives 统一适配配置维度 `nq` 与速度维度 `nv`。
+- 多自由度关节的 RNEA 投影改为逐 DoF motion-subspace 投影，Jacobian/contact Jacobian 使用 `world_motion_linear/angular` 填列。
+- ABA 对 FreeFlyer/Spherical 使用稳定 CRBA solve fallback；Batch 3 的 O(n) ABA 继续用于 Fixed/Revolute/Prismatic 1-DoF 树。
+- 新增四元数到旋转矩阵、列向量读取、四元数归一化/乘法和 rollout 中的四元数流形积分。
+- JSON/URDF/SDF/MJCF 支持 `spherical`/`ball` 与 `freeflyer`/`floating`/`free` 解析和序列化。
+- C FFI 新增 `pino_model_nv`，所有 q/qd/qdd/tau 指针长度按 `nq`/`nv` 分离；JS SDK 新增 `modelNv()` 并同步所有核心 wrapper 维度。
+- 新增 `tests/floating_joints.rs`，覆盖 Spherical、FreeFlyer、RNEA/ABA/Jacobian、JSON roundtrip 与 URDF/SDF/MJCF loader。
+- 质量门禁: `cargo test --all-targets --all-features` 全部通过，累计 97 个测试；`node --check js/pinocchio_wasm.mjs` 通过。
+
 **Slice 6.1 — 关节类型**
 - `FreeFlyer` (nq=7/nv=6, 四元数表示)
 - `Spherical` (nq=4/nv=3, 四元数表示)

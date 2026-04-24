@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{JointType, Model, Workspace};
+use crate::model::{Model, Workspace};
 
 use super::com_energy::center_of_mass;
 use super::constrained::constrained_aba_locked_joints;
@@ -229,17 +229,15 @@ pub fn kinematics_derivatives(
         }
 
         let vi = model.idx_v(j);
-        let axis = ws.world_joint_axis[j];
         let origin = ws.world_joint_origin[j];
-
-        let dp_dq = match joint.jtype {
-            JointType::Revolute => axis.cross(p_target - origin),
-            JointType::Prismatic => axis,
-            JointType::Fixed => continue,
-        };
-        dpos_dq[vi] = dp_dq.x;
-        dpos_dq[n + vi] = dp_dq.y;
-        dpos_dq[2 * n + vi] = dp_dq.z;
+        for k in 0..joint.nv() {
+            let col = vi + k;
+            let dp_dq =
+                ws.world_motion_linear[col] + ws.world_motion_angular[col].cross(p_target - origin);
+            dpos_dq[col] = dp_dq.x;
+            dpos_dq[n + col] = dp_dq.y;
+            dpos_dq[2 * n + col] = dp_dq.z;
+        }
     }
 
     Ok(KinematicsDerivativesResult { dpos_dq })

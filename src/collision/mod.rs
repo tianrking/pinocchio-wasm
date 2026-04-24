@@ -454,9 +454,9 @@ pub fn minimum_distance_batch(
     ws: &mut Workspace,
     distances_out: &mut [f64],
 ) -> Result<()> {
-    let n = model.nv();
+    let nq = model.nq();
     let expected = batch_size
-        .checked_mul(n)
+        .checked_mul(nq)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
@@ -472,8 +472,8 @@ pub fn minimum_distance_batch(
     }
 
     for step in 0..batch_size {
-        let b = step * n;
-        let res = minimum_distance(model, collision, &q_batch[b..b + n], ws)?;
+        let b = step * nq;
+        let res = minimum_distance(model, collision, &q_batch[b..b + nq], ws)?;
         distances_out[step] = res.distance;
     }
     Ok(())
@@ -488,9 +488,9 @@ pub fn minimum_distance_detailed_batch(
     distances_out: &mut [f64],
     penetration_out: &mut [f64],
 ) -> Result<()> {
-    let n = model.nv();
+    let nq = model.nq();
     let expected = batch_size
-        .checked_mul(n)
+        .checked_mul(nq)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
@@ -512,8 +512,8 @@ pub fn minimum_distance_detailed_batch(
     }
 
     for step in 0..batch_size {
-        let b = step * n;
-        let res = minimum_distance_detailed(model, collision, &q_batch[b..b + n], ws)?;
+        let b = step * nq;
+        let res = minimum_distance_detailed(model, collision, &q_batch[b..b + nq], ws)?;
         distances_out[step] = res.distance;
         penetration_out[step] = res.penetration_depth;
     }

@@ -22,9 +22,10 @@ pub extern "C" fn pino_rnea(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
 
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -55,9 +56,10 @@ pub extern "C" fn pino_aba(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
 
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -86,8 +88,9 @@ pub extern "C" fn pino_gravity_torques(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
         let g_out = unsafe { as_mut_slice(g_out, n)? };
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -111,8 +114,9 @@ pub extern "C" fn pino_coriolis_torques(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let c_out = unsafe { as_mut_slice(c_out, n)? };
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -135,8 +139,9 @@ pub extern "C" fn pino_crba(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let mass_out = unsafe { as_mut_slice(mass_out_row_major, n * n)? };
 
         let ws_ref = unsafe { &mut (*ws).ws };

@@ -17,9 +17,10 @@ pub extern "C" fn pino_inverse_dynamics_regressor(
         check_non_null(model)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let p = 10 * model_ref.nlinks();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -46,10 +47,12 @@ pub extern "C" fn pino_inverse_dynamics_regressor_batch(
         check_non_null(model)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let p = 10 * model_ref.nlinks();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let qdd_batch = unsafe { as_slice(qdd_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -78,9 +81,10 @@ pub extern "C" fn pino_kinetic_energy_regressor(
     run_status(|| {
         check_non_null(model)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let p = 10 * model_ref.nlinks();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let out = unsafe { as_mut_slice(regressor_out, p)? };
         let y = algo::kinetic_energy_regressor(model_ref, q, qd).map_err(|_| Status::AlgoFailed)?;
@@ -100,9 +104,9 @@ pub extern "C" fn pino_potential_energy_regressor(
         check_non_null(model)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
-        let n = model_ref.nv();
+        let nq = model_ref.nq();
         let p = 10 * model_ref.nlinks();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
         let out = unsafe { as_mut_slice(regressor_out, p)? };
         let y = algo::potential_energy_regressor(model_ref, q, Vec3::new(g[0], g[1], g[2]))
@@ -121,9 +125,9 @@ pub extern "C" fn pino_center_of_mass_regressor(
     run_status(|| {
         check_non_null(model)?;
         let model_ref = unsafe { &(*model).model };
-        let n = model_ref.nv();
+        let nq = model_ref.nq();
         let p = 10 * model_ref.nlinks();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let out = unsafe { as_mut_slice(regressor_out_3xp, 3 * p)? };
         let y = algo::center_of_mass_regressor(model_ref, q).map_err(|_| Status::AlgoFailed)?;
         out.copy_from_slice(&y);

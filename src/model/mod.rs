@@ -12,6 +12,8 @@ pub enum JointType {
     Revolute,  // nq=1, nv=1: rotation around axis
     Prismatic, // nq=1, nv=1: translation along axis
     Fixed,     // nq=0, nv=0: no degrees of freedom
+    Spherical, // nq=4 quaternion, nv=3 angular velocity
+    FreeFlyer, // nq=7 xyz+quaternion, nv=6 linear+angular velocity
 }
 
 #[derive(Debug, Clone)]
@@ -46,10 +48,28 @@ impl Joint {
         }
     }
 
+    pub fn spherical(origin_translation: Vec3) -> Self {
+        Self {
+            jtype: JointType::Spherical,
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            origin: Transform::new(Mat3::identity(), origin_translation),
+        }
+    }
+
+    pub fn freeflyer(origin_translation: Vec3) -> Self {
+        Self {
+            jtype: JointType::FreeFlyer,
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            origin: Transform::new(Mat3::identity(), origin_translation),
+        }
+    }
+
     pub fn nq(&self) -> usize {
         match self.jtype {
             JointType::Revolute | JointType::Prismatic => 1,
             JointType::Fixed => 0,
+            JointType::Spherical => 4,
+            JointType::FreeFlyer => 7,
         }
     }
 
@@ -57,6 +77,8 @@ impl Joint {
         match self.jtype {
             JointType::Revolute | JointType::Prismatic => 1,
             JointType::Fixed => 0,
+            JointType::Spherical => 3,
+            JointType::FreeFlyer => 6,
         }
     }
 }
@@ -233,24 +255,25 @@ impl Model {
     }
 
     pub fn check_state_dims(&self, q: &[f64], qd: &[f64], qdd: Option<&[f64]>) -> Result<()> {
-        let n = self.nv();
-        if q.len() != n {
+        let nq = self.nq();
+        let nv = self.nv();
+        if q.len() != nq {
             return Err(PinocchioError::DimensionMismatch {
-                expected: n,
+                expected: nq,
                 got: q.len(),
             });
         }
-        if qd.len() != n {
+        if qd.len() != nv {
             return Err(PinocchioError::DimensionMismatch {
-                expected: n,
+                expected: nv,
                 got: qd.len(),
             });
         }
         if let Some(qdd) = qdd
-            && qdd.len() != n
+            && qdd.len() != nv
         {
             return Err(PinocchioError::DimensionMismatch {
-                expected: n,
+                expected: nv,
                 got: qdd.len(),
             });
         }
@@ -457,6 +480,16 @@ pub(crate) fn build_tree_model_from_specs(
                     joint_spec.origin[1],
                     joint_spec.origin[2],
                 )),
+                JointType::Spherical => Joint::spherical(Vec3::new(
+                    joint_spec.origin[0],
+                    joint_spec.origin[1],
+                    joint_spec.origin[2],
+                )),
+                JointType::FreeFlyer => Joint::freeflyer(Vec3::new(
+                    joint_spec.origin[0],
+                    joint_spec.origin[1],
+                    joint_spec.origin[2],
+                )),
             };
             links.push(Link::child(
                 joint_spec.child_link.clone(),
@@ -493,6 +526,8 @@ pub struct Workspace {
     pub world_pose: Vec<Transform>,
     pub world_joint_axis: Vec<Vec3>,
     pub world_joint_origin: Vec<Vec3>,
+    pub world_motion_linear: Vec<Vec3>,
+    pub world_motion_angular: Vec<Vec3>,
     pub omega: Vec<Vec3>,
     pub vel_origin: Vec<Vec3>,
     pub alpha: Vec<Vec3>,
@@ -509,6 +544,8 @@ impl Workspace {
             world_pose: vec![Transform::identity(); nlinks],
             world_joint_axis: vec![Vec3::zero(); njoints],
             world_joint_origin: vec![Vec3::zero(); njoints],
+            world_motion_linear: vec![Vec3::zero(); model.nv()],
+            world_motion_angular: vec![Vec3::zero(); model.nv()],
             omega: vec![Vec3::zero(); nlinks],
             vel_origin: vec![Vec3::zero(); nlinks],
             alpha: vec![Vec3::zero(); nlinks],

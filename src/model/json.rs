@@ -36,6 +36,8 @@ impl Model {
             let jtype = match joint_spec.jtype.as_str() {
                 "prismatic" => JointType::Prismatic,
                 "fixed" => JointType::Fixed,
+                "spherical" => JointType::Spherical,
+                "freeflyer" | "free_flyer" | "floating" => JointType::FreeFlyer,
                 _ => JointType::Revolute, // default for backward compat
             };
             let joint = match jtype {
@@ -60,6 +62,16 @@ impl Model {
                     joint_spec.origin[1],
                     joint_spec.origin[2],
                 )),
+                JointType::Spherical => Joint::spherical(Vec3::new(
+                    joint_spec.origin[0],
+                    joint_spec.origin[1],
+                    joint_spec.origin[2],
+                )),
+                JointType::FreeFlyer => Joint::freeflyer(Vec3::new(
+                    joint_spec.origin[0],
+                    joint_spec.origin[1],
+                    joint_spec.origin[2],
+                )),
             };
             links.push(Link::child(l.name, parent, joint, l.mass, com, inertia));
         }
@@ -78,6 +90,8 @@ impl Model {
                         JointType::Revolute => "revolute",
                         JointType::Prismatic => "prismatic",
                         JointType::Fixed => "fixed",
+                        JointType::Spherical => "spherical",
+                        JointType::FreeFlyer => "freeflyer",
                     };
                     JsonJointSpec {
                         axis: [j.axis.x, j.axis.y, j.axis.z],

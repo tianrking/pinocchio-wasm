@@ -64,6 +64,8 @@ impl Model {
                 JointType::Revolute => "revolute",
                 JointType::Prismatic => "prismatic",
                 JointType::Fixed => "fixed",
+                JointType::Spherical => "ball",
+                JointType::FreeFlyer => "floating",
             };
             out.push_str(&format!(
                 "    <joint name=\"j{idx}\" type=\"{type_str}\">\n"
@@ -81,7 +83,7 @@ impl Model {
                     joint.origin.translation.z
                 ])
             ));
-            if joint.jtype != JointType::Fixed {
+            if matches!(joint.jtype, JointType::Revolute | JointType::Prismatic) {
                 out.push_str("      <axis>\n");
                 out.push_str(&format!(
                     "        <xyz>{}</xyz>\n",
@@ -140,9 +142,11 @@ impl Model {
                 "revolute" | "continuous" => JointType::Revolute,
                 "prismatic" => JointType::Prismatic,
                 "fixed" => JointType::Fixed,
+                "ball" | "spherical" => JointType::Spherical,
+                "floating" | "freeflyer" | "free_flyer" => JointType::FreeFlyer,
                 other => {
                     return Err(PinocchioError::invalid_model(format!(
-                        "unsupported joint type '{other}' in sdf loader (only revolute/continuous/prismatic/fixed supported)"
+                        "unsupported joint type '{other}' in sdf loader"
                     )));
                 }
             };

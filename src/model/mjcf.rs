@@ -41,7 +41,9 @@ impl Model {
             let mjcf_type = match joint.jtype {
                 JointType::Revolute => "hinge",
                 JointType::Prismatic => "slide",
-                JointType::Fixed => "free", // MJCF doesn't have a fixed joint type in the same way
+                JointType::Fixed => "free", // omitted below
+                JointType::Spherical => "ball",
+                JointType::FreeFlyer => "free",
             };
             if joint.jtype != JointType::Fixed {
                 out.push_str(&format!(
@@ -136,7 +138,8 @@ fn parse_mjcf_body_tree(
             match joint_type {
                 "hinge" => JointType::Revolute,
                 "slide" => JointType::Prismatic,
-                "free" => JointType::Fixed,
+                "ball" => JointType::Spherical,
+                "free" => JointType::FreeFlyer,
                 other => {
                     return Err(PinocchioError::invalid_model(format!(
                         "unsupported mjcf joint type '{other}' (only hinge/slide/free supported)"

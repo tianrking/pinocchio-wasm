@@ -1,6 +1,7 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{JointType, Model, Workspace};
+use crate::model::Model;
+use crate::model::Workspace;
 
 use super::contact::ContactPoint;
 use super::dynamics::is_ancestor;
@@ -32,7 +33,6 @@ pub fn frame_jacobian(
         if !is_ancestor(model, link_of_joint, target_link) {
             continue;
         }
-        // Skip fixed joints (they have nv=0, no column in the Jacobian)
         let joint = model.links[link_of_joint]
             .joint
             .as_ref()
@@ -42,21 +42,19 @@ pub fn frame_jacobian(
         }
 
         let vi = model.idx_v(j);
-        let axis = ws.world_joint_axis[j];
         let origin = ws.world_joint_origin[j];
-
-        let (lin, ang) = match joint.jtype {
-            JointType::Revolute => (axis.cross(p_target - origin), axis),
-            JointType::Prismatic => (axis, Vec3::zero()),
-            JointType::Fixed => continue,
-        };
-
-        jac[vi] = lin.x;
-        jac[n + vi] = lin.y;
-        jac[2 * n + vi] = lin.z;
-        jac[3 * n + vi] = ang.x;
-        jac[4 * n + vi] = ang.y;
-        jac[5 * n + vi] = ang.z;
+        for k in 0..joint.nv() {
+            let col = vi + k;
+            let lin =
+                ws.world_motion_linear[col] + ws.world_motion_angular[col].cross(p_target - origin);
+            let ang = ws.world_motion_angular[col];
+            jac[col] = lin.x;
+            jac[n + col] = lin.y;
+            jac[2 * n + col] = lin.z;
+            jac[3 * n + col] = ang.x;
+            jac[4 * n + col] = ang.y;
+            jac[5 * n + col] = ang.z;
+        }
     }
 
     Ok(jac)

@@ -25,8 +25,8 @@ pub extern "C" fn pino_collision_min_distance(
 
         let model_ref = unsafe { &(*model).model };
         let coll_ref = unsafe { &(*collision).collision };
-        let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let nq = model_ref.nq();
+        let q = unsafe { as_slice(q, nq)? };
         let pair_out = unsafe { as_mut_slice(pair_out_i32x2, 2)? };
         let ws_ref = unsafe { &mut (*ws).ws };
 
@@ -72,8 +72,8 @@ pub extern "C" fn pino_collision_min_distance_detailed(
 
         let model_ref = unsafe { &(*model).model };
         let coll_ref = unsafe { &(*collision).collision };
-        let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let nq = model_ref.nq();
+        let q = unsafe { as_slice(q, nq)? };
         let pair_out = unsafe { as_mut_slice(pair_out_i32x2, 2)? };
         let normal_out = unsafe { as_mut_slice(normal_out_xyz, 3)? };
         let point_a_out = unsafe { as_mut_slice(point_a_out_xyz, 3)? };
@@ -118,8 +118,8 @@ pub extern "C" fn pino_collision_min_distance_batch(
 
         let model_ref = unsafe { &(*model).model };
         let coll_ref = unsafe { &(*collision).collision };
-        let n = model_ref.nv();
-        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let nq = model_ref.nq();
+        let total = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let q_batch = unsafe { as_slice(q_batch, total)? };
         let distances_out = unsafe { as_mut_slice(distances_out, batch_size)? };
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -153,8 +153,8 @@ pub extern "C" fn pino_collision_min_distance_detailed_batch(
 
         let model_ref = unsafe { &(*model).model };
         let coll_ref = unsafe { &(*collision).collision };
-        let n = model_ref.nv();
-        let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let nq = model_ref.nq();
+        let total = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let q_batch = unsafe { as_slice(q_batch, total)? };
         let distances_out = unsafe { as_mut_slice(distances_out, batch_size)? };
         let penetration_out = unsafe { as_mut_slice(penetration_out, batch_size)? };
@@ -199,8 +199,8 @@ pub extern "C" fn pino_collision_query_details(
 
         let model_ref = unsafe { &(*model).model };
         let coll_ref = unsafe { &(*collision).collision };
-        let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let nq = model_ref.nq();
+        let q = unsafe { as_slice(q, nq)? };
         let pair_out = unsafe { as_mut_slice(pair_out_i32x2_flat, max_results * 2)? };
         let distance_out = unsafe { as_mut_slice(distance_out, max_results)? };
         let normal_out = unsafe { as_mut_slice(normal_out_xyz_flat, max_results * 3)? };

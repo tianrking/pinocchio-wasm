@@ -65,13 +65,17 @@ pub fn constrained_aba_locked_joints_batch(
     ws: &mut Workspace,
     qdd_out: &mut [f64],
 ) -> Result<()> {
+    let nq = model.nq();
     let n = model.nv();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
-    if q_batch.len() != expected {
+    if q_batch.len() != expected_q {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len(),
         });
     }
@@ -101,10 +105,11 @@ pub fn constrained_aba_locked_joints_batch(
     }
 
     for step in 0..batch_size {
+        let qb = step * nq;
         let b = step * n;
         let qdd = constrained_aba_locked_joints(
             model,
-            &q_batch[b..b + n],
+            &q_batch[qb..qb + nq],
             &qd_batch[b..b + n],
             &tau_batch[b..b + n],
             locked,

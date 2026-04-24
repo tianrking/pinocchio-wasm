@@ -81,23 +81,28 @@ pub fn inverse_dynamics_regressor_batch(
     batch_size: usize,
     gravity: Vec3,
 ) -> Result<Vec<f64>> {
+    let nq = model.nq();
     let n = model.nv();
     let p = 10 * model.nlinks();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
-    if q_batch.len() != expected || qd_batch.len() != expected || qdd_batch.len() != expected {
+    if q_batch.len() != expected_q || qd_batch.len() != expected || qdd_batch.len() != expected {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len().min(qd_batch.len()).min(qdd_batch.len()),
         });
     }
     let mut out = vec![0.0; batch_size * n * p];
     for step in 0..batch_size {
+        let qb = step * nq;
         let b = step * n;
         let y = inverse_dynamics_regressor(
             model,
-            &q_batch[b..b + n],
+            &q_batch[qb..qb + nq],
             &qd_batch[b..b + n],
             &qdd_batch[b..b + n],
             gravity,

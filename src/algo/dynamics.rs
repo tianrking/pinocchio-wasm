@@ -45,18 +45,11 @@ pub fn rnea(
             .as_ref()
             .expect("validated model");
 
-        // Only compute tau for joints with velocity DOFs
         if joint.nv() > 0 {
             let vi = model.idx_v(jidx);
-            let axis = ws.world_joint_axis[jidx];
-            match joint.jtype {
-                JointType::Revolute => {
-                    tau[vi] = ws.torque[link_idx].dot(axis);
-                }
-                JointType::Prismatic => {
-                    tau[vi] = ws.force[link_idx].dot(axis);
-                }
-                JointType::Fixed => {}
+            for k in 0..joint.nv() {
+                tau[vi + k] = ws.force[link_idx].dot(ws.world_motion_linear[vi + k])
+                    + ws.torque[link_idx].dot(ws.world_motion_angular[vi + k]);
             }
         }
 
@@ -246,6 +239,17 @@ pub fn aba(
         });
     }
 
+    if model.links.iter().skip(1).any(|link| {
+        link.joint.as_ref().is_some_and(|joint| {
+            !matches!(
+                joint.jtype,
+                JointType::Revolute | JointType::Prismatic | JointType::Fixed
+            )
+        })
+    }) {
+        return aba_crba(model, q, qd, tau, gravity, ws);
+    }
+
     let nlinks = model.nlinks();
     let njoints = model.njoints();
 
@@ -319,6 +323,7 @@ pub fn aba(
         let r_acc = match joint.jtype {
             JointType::Prismatic => ws.world_joint_origin[jidx] - ws.world_pose[parent].translation,
             JointType::Revolute | JointType::Fixed => r_force,
+            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
         };
 
         let (reduced_inertia, reduced_bias) = if joint.nv() == 0 {
@@ -329,7 +334,7 @@ pub fn aba(
             let s_vec = match joint.jtype {
                 JointType::Revolute => spatial_vec(axis, Vec3::zero()),
                 JointType::Prismatic => spatial_vec(Vec3::zero(), axis),
-                JointType::Fixed => unreachable!(),
+                JointType::Fixed | JointType::Spherical | JointType::FreeFlyer => unreachable!(),
             };
             let ia_s = spatial_mat_vec(&articulated_inertia[link_idx], s_vec);
             d[jidx] = spatial_dot(s_vec, ia_s);
@@ -391,7 +396,7 @@ pub fn aba(
             JointType::Revolute => {
                 ws.world_pose[link_idx].translation - ws.world_pose[parent].translation
             }
-            JointType::Fixed => unreachable!(),
+            JointType::Fixed | JointType::Spherical | JointType::FreeFlyer => unreachable!(),
         };
         let base_alpha = delta_alpha[parent];
         let base_acc = delta_a[parent] + base_alpha.cross(r_parent_to_child);
@@ -403,6 +408,7 @@ pub fn aba(
                 (u[jidx] - spatial_dot(u_vec[jidx], base_spatial_acc)) / d[jidx]
             }
             JointType::Fixed => unreachable!(),
+            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
         };
 
         qdd[vi] = qdd_j;
@@ -419,6 +425,7 @@ pub fn aba(
                 delta_a[link_idx] = base_acc + axis * qdd_j;
             }
             JointType::Fixed => unreachable!(),
+            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
         }
     }
 

@@ -29,8 +29,9 @@ pub extern "C" fn pino_contact_constrained_dynamics(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -84,12 +85,14 @@ pub extern "C" fn pino_contact_constrained_dynamics_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
         let total_lambda = batch_size
             .checked_mul(num_contacts)
             .ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let tau_batch = unsafe { as_slice(tau_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -140,8 +143,9 @@ pub extern "C" fn pino_apply_contact_impulse(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd_minus = unsafe { as_slice(qd_minus, n)? };
         let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, n)? };
         let impulse_out = unsafe { as_mut_slice(impulse_out, num_contacts)? };
@@ -184,12 +188,14 @@ pub extern "C" fn pino_apply_contact_impulse_batch(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
         let total_impulse = batch_size
             .checked_mul(num_contacts)
             .ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_minus_batch = unsafe { as_slice(qd_minus_batch, total)? };
         let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, total)? };
         let impulse_out = unsafe { as_mut_slice(impulse_out, total_impulse)? };
@@ -234,8 +240,9 @@ pub extern "C" fn pino_contact_jacobian_normal(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let jac_out = unsafe { as_mut_slice(jac_out_row_major_kxn, num_contacts * n)? };
         let zero_bias = vec![0.0; num_contacts];
         let contacts = parse_contacts(
@@ -277,8 +284,9 @@ pub extern "C" fn pino_contact_constrained_dynamics_friction(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -343,12 +351,14 @@ pub extern "C" fn pino_contact_constrained_dynamics_friction_batch(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
         let total_k = batch_size
             .checked_mul(num_contacts)
             .ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let tau_batch = unsafe { as_slice(tau_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -405,8 +415,9 @@ pub extern "C" fn pino_apply_contact_impulse_friction(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd_minus = unsafe { as_slice(qd_minus, n)? };
         let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, n)? };
         let in_out = unsafe { as_mut_slice(impulse_normal_out, num_contacts)? };
@@ -466,12 +477,14 @@ pub extern "C" fn pino_apply_contact_impulse_friction_batch(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
         let total_k = batch_size
             .checked_mul(num_contacts)
             .ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_minus_batch = unsafe { as_slice(qd_minus_batch, total)? };
         let qd_plus_out = unsafe { as_mut_slice(qd_plus_out, total)? };
         let in_out = unsafe { as_mut_slice(impulse_normal_out, total_k)? };
@@ -522,8 +535,9 @@ pub extern "C" fn pino_constrained_aba_locked_joints(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let locked_mask = unsafe { as_slice(locked_mask_i32, n)? };
@@ -565,9 +579,11 @@ pub extern "C" fn pino_constrained_aba_locked_joints_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let tau_batch = unsafe { as_slice(tau_batch, total)? };
         let locked_mask = unsafe { as_slice(locked_mask_i32, n)? };

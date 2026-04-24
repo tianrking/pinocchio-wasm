@@ -94,7 +94,8 @@ export async function loadPinocchioWasm(wasmBytes) {
    * Create a model from structured link data.
    * @param {Array} links - Array of link objects. First link is root.
    *   Each link: { parent, joint: { axis, origin, type }, mass, com, inertia }
-   *   joint.type: "revolute" (0, default), "prismatic" (1), "fixed" (2)
+   *   joint.type: "revolute" (0, default), "prismatic" (1), "fixed" (2),
+   *               "spherical" (3), "freeflyer" (4)
    */
   function createModel(links) {
     const nlinks = links.length;
@@ -137,7 +138,9 @@ export async function loadPinocchioWasm(wasmBytes) {
       const j = l.joint || {};
       const typeVal = typeof j.type === "number" ? j.type :
         j.type === "prismatic" ? 1 :
-        j.type === "fixed" ? 2 : 0;
+        j.type === "fixed" ? 2 :
+        j.type === "spherical" ? 3 :
+        (j.type === "freeflyer" || j.type === "free_flyer" || j.type === "floating") ? 4 : 0;
       jointTypes[i] = typeVal;
 
       if (j.axis) {
@@ -277,6 +280,10 @@ export async function loadPinocchioWasm(wasmBytes) {
     return Number(w.pino_model_nq(model));
   }
 
+  function modelNv(model) {
+    return Number(w.pino_model_nv(model));
+  }
+
   function modelNlinks(model) {
     return Number(w.pino_model_nlinks(model));
   }
@@ -301,20 +308,21 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function rnea(model, ws, q, qd, qdd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || qdd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
     const qddMem = writeF64Array(new Float64Array(qdd));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(nq));
+    const outMem = writeF64Array(new Float64Array(nv));
 
     const code = w.pino_rnea(model, ws, qMem.ptr, qdMem.ptr, qddMem.ptr, gMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_rnea failed: ${code}`);
 
-    const tau = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const tau = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -326,20 +334,21 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function aba(model, ws, q, qd, tau, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || tau.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || tau.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(q);
     const qdMem = writeF64Array(qd);
     const tauMem = writeF64Array(tau);
     const gMem = writeF64Array(g);
-    const outMem = writeF64Array(new Float64Array(nq));
+    const outMem = writeF64Array(new Float64Array(nv));
 
     const code = w.pino_aba(model, ws, qMem.ptr, qdMem.ptr, tauMem.ptr, gMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_aba failed: ${code}`);
 
-    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -351,21 +360,22 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function crba(model, ws, q) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) {
       throw new Error(`invalid q length: expected ${nq}, got ${q.length}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
-    const outMem = writeF64Array(new Float64Array(nq * nq));
+    const outMem = writeF64Array(new Float64Array(nv * nv));
 
     const code = w.pino_crba(model, ws, qMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_crba failed: ${code}`);
 
-    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq * nq));
+    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv * nv));
     // Reshape row-major flat to 2D array
     const M = [];
-    for (let r = 0; r < nq; r++) {
-      M.push(flat.slice(r * nq, r * nq + nq));
+    for (let r = 0; r < nv; r++) {
+      M.push(flat.slice(r * nv, r * nv + nv));
     }
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -375,18 +385,19 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function gravityTorques(model, ws, q, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) {
       throw new Error(`invalid q length: expected ${nq}, got ${q.length}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(nq));
+    const outMem = writeF64Array(new Float64Array(nv));
 
     const code = w.pino_gravity_torques(model, ws, qMem.ptr, gMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_gravity_torques failed: ${code}`);
 
-    const result = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const result = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(gMem.ptr, gMem.bytes);
@@ -396,18 +407,19 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function coriolisTorques(model, ws, q, qd) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
-    const outMem = writeF64Array(new Float64Array(nq));
+    const outMem = writeF64Array(new Float64Array(nv));
 
     const code = w.pino_coriolis_torques(model, ws, qMem.ptr, qdMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_coriolis_torques failed: ${code}`);
 
-    const result = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const result = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -421,21 +433,22 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function frameJacobian(model, ws, q, targetLink) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) {
       throw new Error(`invalid q length: expected ${nq}, got ${q.length}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
-    const outMem = writeF64Array(new Float64Array(6 * nq));
+    const outMem = writeF64Array(new Float64Array(6 * nv));
 
     const code = w.pino_frame_jacobian(model, ws, qMem.ptr, targetLink, outMem.ptr);
     if (code !== 0) throw new Error(`pino_frame_jacobian failed: ${code}`);
 
-    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + 6 * nq));
-    // Reshape row-major flat to 2D array (6 x nq)
+    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + 6 * nv));
+    // Reshape row-major flat to 2D array (6 x nv)
     const J = [];
     for (let r = 0; r < 6; r++) {
-      J.push(flat.slice(r * nq, r * nq + nq));
+      J.push(flat.slice(r * nv, r * nv + nv));
     }
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -464,8 +477,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function energy(model, ws, q, qd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
@@ -490,17 +504,18 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function computeAllTerms(model, ws, q, qd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
     const gMem = writeF64Array(new Float64Array(g));
-    const massMem = writeF64Array(new Float64Array(nq * nq));
-    const biasMem = writeF64Array(new Float64Array(nq));
-    const gravityMem = writeF64Array(new Float64Array(nq));
-    const coriolisMem = writeF64Array(new Float64Array(nq));
+    const massMem = writeF64Array(new Float64Array(nv * nv));
+    const biasMem = writeF64Array(new Float64Array(nv));
+    const gravityMem = writeF64Array(new Float64Array(nv));
+    const coriolisMem = writeF64Array(new Float64Array(nv));
     const comMem = writeF64Array(new Float64Array(3));
     const keMem = writeF64Array(new Float64Array(1));
     const peMem = writeF64Array(new Float64Array(1));
@@ -514,14 +529,14 @@ export async function loadPinocchioWasm(wasmBytes) {
     if (code !== 0) throw new Error(`pino_compute_all_terms failed: ${code}`);
 
     const f64 = memoryF64();
-    const mass = Array.from(f64.slice(massMem.ptr / 8, massMem.ptr / 8 + nq * nq));
+    const mass = Array.from(f64.slice(massMem.ptr / 8, massMem.ptr / 8 + nv * nv));
     const M = [];
-    for (let r = 0; r < nq; r++) {
-      M.push(mass.slice(r * nq, r * nq + nq));
+    for (let r = 0; r < nv; r++) {
+      M.push(mass.slice(r * nv, r * nv + nv));
     }
-    const bias = Array.from(f64.slice(biasMem.ptr / 8, biasMem.ptr / 8 + nq));
-    const grav = Array.from(f64.slice(gravityMem.ptr / 8, gravityMem.ptr / 8 + nq));
-    const cor = Array.from(f64.slice(coriolisMem.ptr / 8, coriolisMem.ptr / 8 + nq));
+    const bias = Array.from(f64.slice(biasMem.ptr / 8, biasMem.ptr / 8 + nv));
+    const grav = Array.from(f64.slice(gravityMem.ptr / 8, gravityMem.ptr / 8 + nv));
+    const cor = Array.from(f64.slice(coriolisMem.ptr / 8, coriolisMem.ptr / 8 + nv));
     const com = Array.from(f64.slice(comMem.ptr / 8, comMem.ptr / 8 + 3));
     const ke = f64[keMem.ptr / 8];
     const pe = f64[peMem.ptr / 8];
@@ -579,21 +594,23 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function rneaBatch(model, ws, qBatch, qdBatch, qddBatch, batchSize, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    const total = batchSize * nq;
-    if (qBatch.length !== total || qdBatch.length !== total || qddBatch.length !== total) {
-      throw new Error(`invalid batch length: expected ${total} per array`);
+    const nv = Number(w.pino_model_nv(model));
+    const totalQ = batchSize * nq;
+    const totalV = batchSize * nv;
+    if (qBatch.length !== totalQ || qdBatch.length !== totalV || qddBatch.length !== totalV) {
+      throw new Error(`invalid batch length: expected q=${totalQ}, v=${totalV}`);
     }
 
     const qMem = writeF64Array(new Float64Array(qBatch));
     const qdMem = writeF64Array(new Float64Array(qdBatch));
     const qddMem = writeF64Array(new Float64Array(qddBatch));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(total));
+    const outMem = writeF64Array(new Float64Array(totalV));
 
     const code = w.pino_rnea_batch(model, ws, qMem.ptr, qdMem.ptr, qddMem.ptr, batchSize, gMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_rnea_batch failed: ${code}`);
 
-    const tau = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + total));
+    const tau = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + totalV));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -605,21 +622,23 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function abaBatch(model, ws, qBatch, qdBatch, tauBatch, batchSize, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    const total = batchSize * nq;
-    if (qBatch.length !== total || qdBatch.length !== total || tauBatch.length !== total) {
-      throw new Error(`invalid batch length: expected ${total} per array`);
+    const nv = Number(w.pino_model_nv(model));
+    const totalQ = batchSize * nq;
+    const totalV = batchSize * nv;
+    if (qBatch.length !== totalQ || qdBatch.length !== totalV || tauBatch.length !== totalV) {
+      throw new Error(`invalid batch length: expected q=${totalQ}, v=${totalV}`);
     }
 
     const qMem = writeF64Array(new Float64Array(qBatch));
     const qdMem = writeF64Array(new Float64Array(qdBatch));
     const tauMem = writeF64Array(new Float64Array(tauBatch));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(total));
+    const outMem = writeF64Array(new Float64Array(totalV));
 
     const code = w.pino_aba_batch(model, ws, qMem.ptr, qdMem.ptr, tauMem.ptr, batchSize, gMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_aba_batch failed: ${code}`);
 
-    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + total));
+    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + totalV));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -631,8 +650,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function crbaBatch(model, ws, qBatch, batchSize) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     const totalQ = batchSize * nq;
-    const totalM = batchSize * nq * nq;
+    const totalM = batchSize * nv * nv;
     if (qBatch.length !== totalQ) {
       throw new Error(`invalid q batch length: expected ${totalQ}, got ${qBatch.length}`);
     }
@@ -644,13 +664,13 @@ export async function loadPinocchioWasm(wasmBytes) {
     if (code !== 0) throw new Error(`pino_crba_batch failed: ${code}`);
 
     const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + totalM));
-    // Split into batchSize matrices, each nq x nq
+    // Split into batchSize matrices, each nv x nv
     const result = [];
     for (let b = 0; b < batchSize; b++) {
       const M = [];
-      const base = b * nq * nq;
-      for (let r = 0; r < nq; r++) {
-        M.push(flat.slice(base + r * nq, base + r * nq + nq));
+      const base = b * nv * nv;
+      for (let r = 0; r < nv; r++) {
+        M.push(flat.slice(base + r * nv, base + r * nv + nv));
       }
       result.push(M);
     }
@@ -662,14 +682,19 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function rolloutAbaEuler(model, ws, q0, qd0, tauBatch, batchSize, dt, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    const total = batchSize * nq;
+    const nv = Number(w.pino_model_nv(model));
+    const totalQ = batchSize * nq;
+    const totalV = batchSize * nv;
+    if (q0.length !== nq || qd0.length !== nv || tauBatch.length !== totalV) {
+      throw new Error(`invalid rollout length: nq=${nq}, nv=${nv}`);
+    }
 
     const q0Mem = writeF64Array(new Float64Array(q0));
     const qd0Mem = writeF64Array(new Float64Array(qd0));
     const tauMem = writeF64Array(new Float64Array(tauBatch));
     const gMem = writeF64Array(new Float64Array(g));
-    const qOutMem = writeF64Array(new Float64Array(total));
-    const qdOutMem = writeF64Array(new Float64Array(total));
+    const qOutMem = writeF64Array(new Float64Array(totalQ));
+    const qdOutMem = writeF64Array(new Float64Array(totalV));
 
     const code = w.pino_rollout_aba_euler(
       model, ws,
@@ -678,8 +703,8 @@ export async function loadPinocchioWasm(wasmBytes) {
     );
     if (code !== 0) throw new Error(`pino_rollout_aba_euler failed: ${code}`);
 
-    const qOut = Array.from(memoryF64().slice(qOutMem.ptr / 8, qOutMem.ptr / 8 + total));
-    const qdOut = Array.from(memoryF64().slice(qdOutMem.ptr / 8, qdOutMem.ptr / 8 + total));
+    const qOut = Array.from(memoryF64().slice(qOutMem.ptr / 8, qOutMem.ptr / 8 + totalQ));
+    const qdOut = Array.from(memoryF64().slice(qdOutMem.ptr / 8, qdOutMem.ptr / 8 + totalV));
 
     freeBytes(q0Mem.ptr, q0Mem.bytes);
     freeBytes(qd0Mem.ptr, qd0Mem.bytes);
@@ -696,8 +721,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function contactConstrainedDynamics(model, ws, q, qd, tau, contacts, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || tau.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || tau.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
     const numContacts = contacts.length;
 
@@ -728,7 +754,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     const ptMem = writeF64Array(points);
     const nmMem = writeF64Array(normals);
     const abMem = writeF64Array(accelBias);
-    const qddOutMem = writeF64Array(new Float64Array(nq));
+    const qddOutMem = writeF64Array(new Float64Array(nv));
     const lambdaOutMem = writeF64Array(new Float64Array(numContacts));
 
     const code = w.pino_contact_constrained_dynamics(
@@ -739,7 +765,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     );
     if (code !== 0) throw new Error(`pino_contact_constrained_dynamics failed: ${code}`);
 
-    const qdd = Array.from(memoryF64().slice(qddOutMem.ptr / 8, qddOutMem.ptr / 8 + nq));
+    const qdd = Array.from(memoryF64().slice(qddOutMem.ptr / 8, qddOutMem.ptr / 8 + nv));
     const lambda = Array.from(memoryF64().slice(lambdaOutMem.ptr / 8, lambdaOutMem.ptr / 8 + numContacts));
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -757,8 +783,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function applyContactImpulse(model, ws, q, qdMinus, restitution, contacts) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qdMinus.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qdMinus.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
     const numContacts = contacts.length;
 
@@ -783,7 +810,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     const liMem = writeI32Array(linkIndices);
     const ptMem = writeF64Array(points);
     const nmMem = writeF64Array(normals);
-    const qdPlusMem = writeF64Array(new Float64Array(nq));
+    const qdPlusMem = writeF64Array(new Float64Array(nv));
     const impulseMem = writeF64Array(new Float64Array(numContacts));
 
     const code = w.pino_apply_contact_impulse(
@@ -793,7 +820,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     );
     if (code !== 0) throw new Error(`pino_apply_contact_impulse failed: ${code}`);
 
-    const qdPlus = Array.from(memoryF64().slice(qdPlusMem.ptr / 8, qdPlusMem.ptr / 8 + nq));
+    const qdPlus = Array.from(memoryF64().slice(qdPlusMem.ptr / 8, qdPlusMem.ptr / 8 + nv));
     const impulse = Array.from(memoryF64().slice(impulseMem.ptr / 8, impulseMem.ptr / 8 + numContacts));
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -808,6 +835,7 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function contactJacobianNormal(model, ws, q, contacts) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) {
       throw new Error(`invalid q length: expected ${nq}, got ${q.length}`);
     }
@@ -833,7 +861,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     const liMem = writeI32Array(linkIndices);
     const ptMem = writeF64Array(points);
     const nmMem = writeF64Array(normals);
-    const outMem = writeF64Array(new Float64Array(numContacts * nq));
+    const outMem = writeF64Array(new Float64Array(numContacts * nv));
 
     const code = w.pino_contact_jacobian_normal(
       model, ws, qMem.ptr,
@@ -842,11 +870,11 @@ export async function loadPinocchioWasm(wasmBytes) {
     );
     if (code !== 0) throw new Error(`pino_contact_jacobian_normal failed: ${code}`);
 
-    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + numContacts * nq));
-    // Reshape to numContacts x nq
+    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + numContacts * nv));
+    // Reshape to numContacts x nv
     const J = [];
     for (let k = 0; k < numContacts; k++) {
-      J.push(flat.slice(k * nq, k * nq + nq));
+      J.push(flat.slice(k * nv, k * nv + nv));
     }
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -1029,8 +1057,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function centroidalMomentum(model, ws, q, qd) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
@@ -1057,20 +1086,21 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function centroidalMap(model, ws, q) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) {
       throw new Error(`invalid q length: expected ${nq}, got ${q.length}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
-    const outMem = writeF64Array(new Float64Array(6 * nq));
+    const outMem = writeF64Array(new Float64Array(6 * nv));
 
     const code = w.pino_centroidal_map(model, ws, qMem.ptr, outMem.ptr);
     if (code !== 0) throw new Error(`pino_centroidal_map failed: ${code}`);
 
-    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + 6 * nq));
+    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + 6 * nv));
     const Ag = [];
     for (let r = 0; r < 6; r++) {
-      Ag.push(flat.slice(r * nq, r * nq + nq));
+      Ag.push(flat.slice(r * nv, r * nv + nv));
     }
 
     freeBytes(qMem.ptr, qMem.bytes);
@@ -1080,15 +1110,16 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function centroidalFullTerms(model, ws, q, qd, qdd) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || qdd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
     const qddMem = writeF64Array(new Float64Array(qdd));
-    const agMem = writeF64Array(new Float64Array(6 * nq));
-    const dagMem = writeF64Array(new Float64Array(6 * nq * nq));
+    const agMem = writeF64Array(new Float64Array(6 * nv));
+    const dagMem = writeF64Array(new Float64Array(6 * nv * nv));
     const momMem = writeF64Array(new Float64Array(6));
     const hdotMem = writeF64Array(new Float64Array(6));
 
@@ -1099,15 +1130,15 @@ export async function loadPinocchioWasm(wasmBytes) {
     if (code !== 0) throw new Error(`pino_centroidal_full_terms failed: ${code}`);
 
     const f64 = memoryF64();
-    const agFlat = Array.from(f64.slice(agMem.ptr / 8, agMem.ptr / 8 + 6 * nq));
+    const agFlat = Array.from(f64.slice(agMem.ptr / 8, agMem.ptr / 8 + 6 * nv));
     const Ag = [];
     for (let r = 0; r < 6; r++) {
-      Ag.push(agFlat.slice(r * nq, r * nq + nq));
+      Ag.push(agFlat.slice(r * nv, r * nv + nv));
     }
-    const dagFlat = Array.from(f64.slice(dagMem.ptr / 8, dagMem.ptr / 8 + 6 * nq * nq));
+    const dagFlat = Array.from(f64.slice(dagMem.ptr / 8, dagMem.ptr / 8 + 6 * nv * nv));
     const dAg = [];
-    for (let r = 0; r < 6 * nq; r++) {
-      dAg.push(dagFlat.slice(r * nq, r * nq + nq));
+    for (let r = 0; r < 6 * nv; r++) {
+      dAg.push(dagFlat.slice(r * nv, r * nv + nv));
     }
     const momentum = {
       linear: [f64[momMem.ptr / 8], f64[momMem.ptr / 8 + 1], f64[momMem.ptr / 8 + 2]],
@@ -1134,26 +1165,27 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function inverseDynamicsRegressor(model, q, qd, qdd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     const nl = Number(w.pino_model_nlinks(model));
     const p = 10 * nl;
-    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    if (q.length !== nq || qd.length !== nv || qdd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
     const qddMem = writeF64Array(new Float64Array(qdd));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(nq * p));
+    const outMem = writeF64Array(new Float64Array(nv * p));
 
     const code = w.pino_inverse_dynamics_regressor(
       model, qMem.ptr, qdMem.ptr, qddMem.ptr, gMem.ptr, outMem.ptr
     );
     if (code !== 0) throw new Error(`pino_inverse_dynamics_regressor failed: ${code}`);
 
-    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq * p));
+    const flat = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv * p));
     const Y = [];
-    for (let r = 0; r < nq; r++) {
+    for (let r = 0; r < nv; r++) {
       Y.push(flat.slice(r * p, r * p + p));
     }
 
@@ -1167,10 +1199,11 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function kineticEnergyRegressor(model, q, qd) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     const nl = Number(w.pino_model_nlinks(model));
     const p = 10 * nl;
-    if (q.length !== nq || qd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    if (q.length !== nq || qd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
@@ -1194,10 +1227,11 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function rneaSecondOrderDerivatives(model, ws, q, qd, qdd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || qdd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
-    const cube = nq * nq * nq;
+    const cube = nv * nv * nv;
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
@@ -1229,8 +1263,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function kinematicsDerivatives(model, ws, q, targetLink) {
     const nq = Number(w.pino_model_nq(model));
+    const nv = Number(w.pino_model_nv(model));
     if (q.length !== nq) throw new Error(`invalid q length: expected ${nq}`);
-    const outLen = 3 * nq;
+    const outLen = 3 * nv;
 
     const qMem = writeF64Array(new Float64Array(q));
     const outMem = writeF64Array(new Float64Array(outLen));
@@ -1246,10 +1281,11 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function rneaDerivatives(model, ws, q, qd, qdd, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || qdd.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || qdd.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
-    const mat = nq * nq;
+    const mat = nv * nv;
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
@@ -1281,10 +1317,11 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function abaDerivatives(model, ws, q, qd, tau, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || tau.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || tau.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
-    const mat = nq * nq;
+    const mat = nv * nv;
 
     const qMem = writeF64Array(new Float64Array(q));
     const qdMem = writeF64Array(new Float64Array(qd));
@@ -1320,8 +1357,9 @@ export async function loadPinocchioWasm(wasmBytes) {
 
   function constrainedAbaLockedJoints(model, ws, q, qd, tau, lockedMask, g = [0, 0, -9.81]) {
     const nq = Number(w.pino_model_nq(model));
-    if (q.length !== nq || qd.length !== nq || tau.length !== nq || lockedMask.length !== nq) {
-      throw new Error(`invalid state length: nq=${nq}`);
+    const nv = Number(w.pino_model_nv(model));
+    if (q.length !== nq || qd.length !== nv || tau.length !== nv || lockedMask.length !== nv) {
+      throw new Error(`invalid state length: nq=${nq}, nv=${nv}`);
     }
 
     const qMem = writeF64Array(new Float64Array(q));
@@ -1329,14 +1367,14 @@ export async function loadPinocchioWasm(wasmBytes) {
     const tauMem = writeF64Array(new Float64Array(tau));
     const maskMem = writeI32Array(new Int32Array(lockedMask));
     const gMem = writeF64Array(new Float64Array(g));
-    const outMem = writeF64Array(new Float64Array(nq));
+    const outMem = writeF64Array(new Float64Array(nv));
 
     const code = w.pino_constrained_aba_locked_joints(
       model, ws, qMem.ptr, qdMem.ptr, tauMem.ptr, maskMem.ptr, gMem.ptr, outMem.ptr
     );
     if (code !== 0) throw new Error(`pino_constrained_aba_locked_joints failed: ${code}`);
 
-    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nq));
+    const qdd = Array.from(memoryF64().slice(outMem.ptr / 8, outMem.ptr / 8 + nv));
 
     freeBytes(qMem.ptr, qMem.bytes);
     freeBytes(qdMem.ptr, qdMem.bytes);
@@ -1361,6 +1399,7 @@ export async function loadPinocchioWasm(wasmBytes) {
     modelToSdf,
     modelToMjcf,
     modelNq,
+    modelNv,
     modelNlinks,
     newWorkspace,
     disposeModel,

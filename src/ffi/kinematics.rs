@@ -19,9 +19,9 @@ pub extern "C" fn pino_forward_kinematics_poses(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
-        let n = model_ref.nv();
+        let nq = model_ref.nq();
         let nl = model_ref.nlinks();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let translations_out = unsafe { as_mut_slice(translations_out, 3 * nl)? };
         let rotations_out = unsafe { as_mut_slice(rotations_out, 9 * nl)? };
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -59,9 +59,9 @@ pub extern "C" fn pino_forward_kinematics_poses_batch(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
-        let n = model_ref.nv();
+        let nq = model_ref.nq();
         let nl = model_ref.nlinks();
-        let total_q = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total_t = batch_size
             .checked_mul(nl)
             .and_then(|x| x.checked_mul(3))
@@ -113,8 +113,9 @@ pub extern "C" fn pino_compute_all_terms(
         }
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
         let mass_out = unsafe { as_mut_slice(mass_out_row_major, n * n)? };
@@ -158,8 +159,9 @@ pub extern "C" fn pino_frame_jacobian(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let jac_out = unsafe { as_mut_slice(jac_out_row_major_6xn, 6 * n)? };
 
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -182,8 +184,8 @@ pub extern "C" fn pino_center_of_mass(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
-        let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let nq = model_ref.nq();
+        let q = unsafe { as_slice(q, nq)? };
         let com_out = unsafe { as_mut_slice(com_out_xyz, 3)? };
 
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -214,8 +216,9 @@ pub extern "C" fn pino_energy(
         }
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
 

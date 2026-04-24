@@ -23,10 +23,12 @@ pub extern "C" fn pino_rnea_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
 
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let qdd_batch = unsafe { as_slice(qdd_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -64,9 +66,11 @@ pub extern "C" fn pino_bias_forces_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
         let bias_out = unsafe { as_mut_slice(bias_out, total)? };
@@ -100,9 +104,11 @@ pub extern "C" fn pino_gravity_torques_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
         let g_out = unsafe { as_mut_slice(g_out, total)? };
         let ws_ref = unsafe { &mut (*ws).ws };
@@ -132,8 +138,9 @@ pub extern "C" fn pino_crba_batch(
         check_non_null(ws as *const WorkspaceHandle)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let total_q = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total_m = batch_size
             .checked_mul(n)
             .and_then(|x| x.checked_mul(n))
@@ -164,10 +171,12 @@ pub extern "C" fn pino_aba_batch(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
 
-        let q_batch = unsafe { as_slice(q_batch, total)? };
+        let q_batch = unsafe { as_slice(q_batch, total_q)? };
         let qd_batch = unsafe { as_slice(qd_batch, total)? };
         let tau_batch = unsafe { as_slice(tau_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -208,14 +217,16 @@ pub extern "C" fn pino_rollout_aba_euler(
         check_non_null(gravity_xyz)?;
 
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
+        let total_q = batch_size.checked_mul(nq).ok_or(Status::InvalidInput)?;
         let total = batch_size.checked_mul(n).ok_or(Status::InvalidInput)?;
 
-        let q0 = unsafe { as_slice(q0, n)? };
+        let q0 = unsafe { as_slice(q0, nq)? };
         let qd0 = unsafe { as_slice(qd0, n)? };
         let tau_batch = unsafe { as_slice(tau_batch, total)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
-        let q_out = unsafe { as_mut_slice(q_out, total)? };
+        let q_out = unsafe { as_mut_slice(q_out, total_q)? };
         let qd_out = unsafe { as_mut_slice(qd_out, total)? };
 
         let ws_ref = unsafe { &mut (*ws).ws };

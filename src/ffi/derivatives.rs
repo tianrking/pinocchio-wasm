@@ -24,12 +24,13 @@ pub extern "C" fn pino_rnea_second_order_derivatives(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let cube = n
             .checked_mul(n)
             .and_then(|x| x.checked_mul(n))
             .ok_or(Status::InvalidInput)?;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -71,9 +72,10 @@ pub extern "C" fn pino_constrained_dynamics_derivatives_locked_joints(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let locked_mask = unsafe { as_slice(locked_mask_i32, n)? };
@@ -123,9 +125,10 @@ pub extern "C" fn pino_impulse_dynamics_derivatives(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd_minus = unsafe { as_slice(qd_minus, n)? };
         let dq = unsafe { as_mut_slice(dqdplus_dq_out, mat)? };
         let dv = unsafe { as_mut_slice(dqdplus_dqdminus_out, mat)? };
@@ -171,9 +174,10 @@ pub extern "C" fn pino_kinematics_derivatives(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let out_len = 3 * n;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let dpos_dq = unsafe { as_mut_slice(dpos_dq_out, out_len)? };
         let ws_ref = unsafe { &mut (*ws).ws };
         let out = algo::kinematics_derivatives(model_ref, q, target_link, ws_ref)
@@ -200,9 +204,10 @@ pub extern "C" fn pino_rnea_derivatives(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };
@@ -241,9 +246,10 @@ pub extern "C" fn pino_aba_derivatives(
         check_non_null(ws as *const WorkspaceHandle)?;
         check_non_null(gravity_xyz)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
         let mat = n.checked_mul(n).ok_or(Status::InvalidInput)?;
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let tau = unsafe { as_slice(tau, n)? };
         let g = unsafe { as_slice(gravity_xyz, 3)? };

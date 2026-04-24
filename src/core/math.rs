@@ -187,6 +187,39 @@ impl Mat3 {
         }
         out
     }
+
+    pub fn from_quaternion(w: f64, x: f64, y: f64, z: f64) -> Self {
+        let n2 = w * w + x * x + y * y + z * z;
+        if n2 <= 1e-16 {
+            return Self::identity();
+        }
+        let inv_n = 1.0 / n2.sqrt();
+        let w = w * inv_n;
+        let x = x * inv_n;
+        let y = y * inv_n;
+        let z = z * inv_n;
+        Self::new([
+            [
+                1.0 - 2.0 * (y * y + z * z),
+                2.0 * (x * y - z * w),
+                2.0 * (x * z + y * w),
+            ],
+            [
+                2.0 * (x * y + z * w),
+                1.0 - 2.0 * (x * x + z * z),
+                2.0 * (y * z - x * w),
+            ],
+            [
+                2.0 * (x * z - y * w),
+                2.0 * (y * z + x * w),
+                1.0 - 2.0 * (x * x + y * y),
+            ],
+        ])
+    }
+
+    pub fn col(self, index: usize) -> Vec3 {
+        Vec3::new(self.m[0][index], self.m[1][index], self.m[2][index])
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -42,6 +42,14 @@ pub extern "C" fn pino_model_nq(model: *const ModelHandle) -> usize {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pino_model_nv(model: *const ModelHandle) -> usize {
+    if model.is_null() {
+        return 0;
+    }
+    unsafe { (*model).model.nv() }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pino_model_nlinks(model: *const ModelHandle) -> usize {
     if model.is_null() {
         return 0;
@@ -112,12 +120,16 @@ pub extern "C" fn pino_model_create(
                 0 => JointType::Revolute,
                 1 => JointType::Prismatic,
                 2 => JointType::Fixed,
+                3 => JointType::Spherical,
+                4 => JointType::FreeFlyer,
                 _ => return Err(Status::InvalidInput),
             };
             let joint = match jtype {
                 JointType::Revolute => Joint::revolute(axis, origin),
                 JointType::Prismatic => Joint::prismatic(axis, origin),
                 JointType::Fixed => Joint::fixed(origin),
+                JointType::Spherical => Joint::spherical(origin),
+                JointType::FreeFlyer => Joint::freeflyer(origin),
             };
             links.push(Link::child(
                 format!("link_{i}"),

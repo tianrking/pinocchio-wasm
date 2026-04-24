@@ -1,6 +1,6 @@
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
-use crate::model::{JointType, Model, Workspace};
+use crate::model::{Model, Workspace};
 
 use super::dynamics::{cholesky_solve, crba, is_ancestor};
 use super::kinematics::forward_kinematics;
@@ -88,14 +88,13 @@ pub(super) fn contact_jacobian_row(
             continue;
         }
         let vi = model.idx_v(j);
-        let axis = ws.world_joint_axis[j];
         let origin = ws.world_joint_origin[j];
-        let lin = match joint.jtype {
-            JointType::Revolute => axis.cross(p_world - origin),
-            JointType::Prismatic => axis,
-            JointType::Fixed => continue,
-        };
-        jrow[vi] = normal.dot(lin);
+        for k in 0..joint.nv() {
+            let col = vi + k;
+            let lin =
+                ws.world_motion_linear[col] + ws.world_motion_angular[col].cross(p_world - origin);
+            jrow[col] = normal.dot(lin);
+        }
     }
     Ok(jrow)
 }
@@ -235,17 +234,21 @@ pub fn constrained_forward_dynamics_contacts_batch(
     qdd_out: &mut [f64],
     lambda_out: &mut [f64],
 ) -> Result<()> {
+    let nq = model.nq();
     let n = model.nv();
     let k = contacts.len();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_lambda = batch_size
         .checked_mul(k)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
-    if q_batch.len() != expected {
+    if q_batch.len() != expected_q {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len(),
         });
     }
@@ -275,18 +278,19 @@ pub fn constrained_forward_dynamics_contacts_batch(
     }
 
     for step in 0..batch_size {
-        let qb = step * n;
+        let qb = step * nq;
+        let b = step * n;
         let lb = step * k;
         let out = constrained_forward_dynamics_contacts(
             model,
-            &q_batch[qb..qb + n],
-            &qd_batch[qb..qb + n],
-            &tau_batch[qb..qb + n],
+            &q_batch[qb..qb + nq],
+            &qd_batch[b..b + n],
+            &tau_batch[b..b + n],
             contacts,
             gravity,
             ws,
         )?;
-        qdd_out[qb..qb + n].copy_from_slice(&out.qdd);
+        qdd_out[b..b + n].copy_from_slice(&out.qdd);
         lambda_out[lb..lb + k].copy_from_slice(&out.lambda_normal);
     }
     Ok(())
@@ -380,17 +384,21 @@ pub fn apply_contact_impulses_batch(
     qd_plus_out: &mut [f64],
     impulse_out: &mut [f64],
 ) -> Result<()> {
+    let nq = model.nq();
     let n = model.nv();
     let k = contacts.len();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected_impulse = batch_size
         .checked_mul(k)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
-    if q_batch.len() != expected {
+    if q_batch.len() != expected_q {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len(),
         });
     }
@@ -414,17 +422,18 @@ pub fn apply_contact_impulses_batch(
     }
 
     for step in 0..batch_size {
-        let qb = step * n;
+        let qb = step * nq;
+        let b = step * n;
         let ib = step * k;
         let out = apply_contact_impulses(
             model,
-            &q_batch[qb..qb + n],
-            &qd_minus_batch[qb..qb + n],
+            &q_batch[qb..qb + nq],
+            &qd_minus_batch[b..b + n],
             contacts,
             restitution,
             ws,
         )?;
-        qd_plus_out[qb..qb + n].copy_from_slice(&out.qd_plus);
+        qd_plus_out[b..b + n].copy_from_slice(&out.qd_plus);
         impulse_out[ib..ib + k].copy_from_slice(&out.impulse_normal);
     }
 
@@ -585,8 +594,12 @@ pub fn constrained_forward_dynamics_contacts_friction_batch(
     lambda_tangent_out: &mut [f64],
     force_world_out: &mut [f64],
 ) -> Result<()> {
+    let nq = model.nq();
     let n = model.nv();
     let k = contacts.len();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
@@ -599,13 +612,13 @@ pub fn constrained_forward_dynamics_contacts_friction_batch(
     let expected_f = expected_k
         .checked_mul(3)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
-    if q_batch.len() != expected
+    if q_batch.len() != expected_q
         || qd_batch.len() != expected
         || tau_batch.len() != expected
         || qdd_out.len() != expected
     {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len().min(qd_batch.len()).min(tau_batch.len()),
         });
     }
@@ -629,20 +642,21 @@ pub fn constrained_forward_dynamics_contacts_friction_batch(
     }
 
     for step in 0..batch_size {
-        let qb = step * n;
+        let qb = step * nq;
+        let b = step * n;
         let kb = step * k;
         let tb = step * k * 2;
         let fb = step * k * 3;
         let out = constrained_forward_dynamics_contacts_friction(
             model,
-            &q_batch[qb..qb + n],
-            &qd_batch[qb..qb + n],
-            &tau_batch[qb..qb + n],
+            &q_batch[qb..qb + nq],
+            &qd_batch[b..b + n],
+            &tau_batch[b..b + n],
             contacts,
             gravity,
             ws,
         )?;
-        qdd_out[qb..qb + n].copy_from_slice(&out.qdd);
+        qdd_out[b..b + n].copy_from_slice(&out.qdd);
         lambda_normal_out[kb..kb + k].copy_from_slice(&out.lambda_normal);
         for c in 0..k {
             lambda_tangent_out[tb + 2 * c] = out.lambda_tangent[c][0];
@@ -800,8 +814,12 @@ pub fn apply_contact_impulses_friction_batch(
     impulse_tangent_out: &mut [f64],
     impulse_world_out: &mut [f64],
 ) -> Result<()> {
+    let nq = model.nq();
     let n = model.nv();
     let k = contacts.len();
+    let expected_q = batch_size
+        .checked_mul(nq)
+        .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     let expected = batch_size
         .checked_mul(n)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
@@ -815,12 +833,12 @@ pub fn apply_contact_impulses_friction_batch(
         .checked_mul(3)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
 
-    if q_batch.len() != expected
+    if q_batch.len() != expected_q
         || qd_minus_batch.len() != expected
         || qd_plus_out.len() != expected
     {
         return Err(PinocchioError::DimensionMismatch {
-            expected,
+            expected: expected_q,
             got: q_batch.len().min(qd_minus_batch.len()),
         });
     }
@@ -844,19 +862,20 @@ pub fn apply_contact_impulses_friction_batch(
     }
 
     for step in 0..batch_size {
-        let qb = step * n;
+        let qb = step * nq;
+        let b = step * n;
         let kb = step * k;
         let tb = step * k * 2;
         let wb = step * k * 3;
         let out = apply_contact_impulses_friction(
             model,
-            &q_batch[qb..qb + n],
-            &qd_minus_batch[qb..qb + n],
+            &q_batch[qb..qb + nq],
+            &qd_minus_batch[b..b + n],
             contacts,
             restitution,
             ws,
         )?;
-        qd_plus_out[qb..qb + n].copy_from_slice(&out.qd_plus);
+        qd_plus_out[b..b + n].copy_from_slice(&out.qd_plus);
         impulse_normal_out[kb..kb + k].copy_from_slice(&out.impulse_normal);
         for c in 0..k {
             impulse_tangent_out[tb + 2 * c] = out.impulse_tangent[c][0];

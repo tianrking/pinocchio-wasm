@@ -43,20 +43,34 @@ pub fn forward_kinematics(
         let joint_frame_rotation = parent_pose.rotation.mul_mat(joint.origin.rotation);
         let joint_origin_world = parent_pose.transform_point(joint.origin.translation);
         let axis_world = joint_frame_rotation.mul_vec(joint.axis);
+        let qbase = model.idx_q(jidx);
+        let vbase = model.idx_v(jidx);
 
         let (link_rotation, link_translation) = match joint.jtype {
             JointType::Revolute => {
-                let vi = model.idx_v(jidx);
-                let q_j = q[vi];
+                let q_j = q[qbase];
                 let rot_delta = Mat3::from_axis_angle(joint.axis, q_j);
                 (joint_frame_rotation.mul_mat(rot_delta), joint_origin_world)
             }
             JointType::Prismatic => {
-                let vi = model.idx_v(jidx);
-                let q_j = q[vi];
+                let q_j = q[qbase];
                 (joint_frame_rotation, joint_origin_world + axis_world * q_j)
             }
             JointType::Fixed => (joint_frame_rotation, joint_origin_world),
+            JointType::Spherical => {
+                let rot_delta =
+                    Mat3::from_quaternion(q[qbase], q[qbase + 1], q[qbase + 2], q[qbase + 3]);
+                (joint_frame_rotation.mul_mat(rot_delta), joint_origin_world)
+            }
+            JointType::FreeFlyer => {
+                let trans = Vec3::new(q[qbase], q[qbase + 1], q[qbase + 2]);
+                let rot_delta =
+                    Mat3::from_quaternion(q[qbase + 3], q[qbase + 4], q[qbase + 5], q[qbase + 6]);
+                (
+                    joint_frame_rotation.mul_mat(rot_delta),
+                    joint_origin_world + joint_frame_rotation.mul_vec(trans),
+                )
+            }
         };
 
         ws.world_pose[link_idx] = Transform::new(link_rotation, link_translation);
@@ -67,9 +81,10 @@ pub fn forward_kinematics(
 
         match joint.jtype {
             JointType::Revolute => {
-                let vi = model.idx_v(jidx);
-                let qd_j = qd[vi];
-                let qdd_j = qdd[vi];
+                let qd_j = qd[vbase];
+                let qdd_j = qdd[vbase];
+                ws.world_motion_linear[vbase] = Vec3::zero();
+                ws.world_motion_angular[vbase] = axis_world;
                 ws.omega[link_idx] = parent_w + axis_world * qd_j;
                 ws.vel_origin[link_idx] = parent_v + parent_w.cross(r_parent_to_joint);
                 ws.alpha[link_idx] =
@@ -79,9 +94,10 @@ pub fn forward_kinematics(
                     + parent_w.cross(parent_w.cross(r_parent_to_joint));
             }
             JointType::Prismatic => {
-                let vi = model.idx_v(jidx);
-                let qd_j = qd[vi];
-                let qdd_j = qdd[vi];
+                let qd_j = qd[vbase];
+                let qdd_j = qdd[vbase];
+                ws.world_motion_linear[vbase] = axis_world;
+                ws.world_motion_angular[vbase] = Vec3::zero();
                 ws.omega[link_idx] = parent_w;
                 ws.vel_origin[link_idx] =
                     parent_v + parent_w.cross(r_parent_to_joint) + axis_world * qd_j;
@@ -99,6 +115,54 @@ pub fn forward_kinematics(
                 ws.acc_origin[link_idx] = parent_acc
                     + parent_alpha.cross(r_parent_to_joint)
                     + parent_w.cross(parent_w.cross(r_parent_to_joint));
+            }
+            JointType::Spherical => {
+                let axes = [
+                    joint_frame_rotation.col(0),
+                    joint_frame_rotation.col(1),
+                    joint_frame_rotation.col(2),
+                ];
+                let rel_w = axes[0] * qd[vbase] + axes[1] * qd[vbase + 1] + axes[2] * qd[vbase + 2];
+                let rel_a =
+                    axes[0] * qdd[vbase] + axes[1] * qdd[vbase + 1] + axes[2] * qdd[vbase + 2];
+                for (k, axis) in axes.iter().copied().enumerate() {
+                    ws.world_motion_linear[vbase + k] = Vec3::zero();
+                    ws.world_motion_angular[vbase + k] = axis;
+                }
+                ws.omega[link_idx] = parent_w + rel_w;
+                ws.vel_origin[link_idx] = parent_v + parent_w.cross(r_parent_to_joint);
+                ws.alpha[link_idx] = parent_alpha + rel_a + parent_w.cross(rel_w);
+                ws.acc_origin[link_idx] = parent_acc
+                    + parent_alpha.cross(r_parent_to_joint)
+                    + parent_w.cross(parent_w.cross(r_parent_to_joint));
+            }
+            JointType::FreeFlyer => {
+                let axes = [
+                    joint_frame_rotation.col(0),
+                    joint_frame_rotation.col(1),
+                    joint_frame_rotation.col(2),
+                ];
+                let rel_v = axes[0] * qd[vbase] + axes[1] * qd[vbase + 1] + axes[2] * qd[vbase + 2];
+                let rel_w =
+                    axes[0] * qd[vbase + 3] + axes[1] * qd[vbase + 4] + axes[2] * qd[vbase + 5];
+                let rel_acc =
+                    axes[0] * qdd[vbase] + axes[1] * qdd[vbase + 1] + axes[2] * qdd[vbase + 2];
+                let rel_alpha =
+                    axes[0] * qdd[vbase + 3] + axes[1] * qdd[vbase + 4] + axes[2] * qdd[vbase + 5];
+                for (k, axis) in axes.iter().copied().enumerate() {
+                    ws.world_motion_linear[vbase + k] = axis;
+                    ws.world_motion_angular[vbase + k] = Vec3::zero();
+                    ws.world_motion_linear[vbase + 3 + k] = Vec3::zero();
+                    ws.world_motion_angular[vbase + 3 + k] = axis;
+                }
+                ws.omega[link_idx] = parent_w + rel_w;
+                ws.vel_origin[link_idx] = parent_v + parent_w.cross(r_parent_to_joint) + rel_v;
+                ws.alpha[link_idx] = parent_alpha + rel_alpha + parent_w.cross(rel_w);
+                ws.acc_origin[link_idx] = parent_acc
+                    + parent_alpha.cross(r_parent_to_joint)
+                    + parent_w.cross(parent_w.cross(r_parent_to_joint))
+                    + parent_w.cross(rel_v) * 2.0
+                    + rel_acc;
             }
         }
     }
@@ -126,10 +190,10 @@ pub fn forward_kinematics_poses_batch(
     translations_out: &mut [f64],
     rotations_out: &mut [f64],
 ) -> Result<()> {
-    let n = model.nv();
+    let nq = model.nq();
     let nl = model.nlinks();
     let expected_q = batch_size
-        .checked_mul(n)
+        .checked_mul(nq)
         .ok_or(PinocchioError::invalid_model("batch size overflow"))?;
     if q_batch.len() != expected_q {
         return Err(PinocchioError::DimensionMismatch {
@@ -159,8 +223,8 @@ pub fn forward_kinematics_poses_batch(
     }
 
     for step in 0..batch_size {
-        let qb = step * n;
-        let poses = forward_kinematics_poses(model, &q_batch[qb..qb + n], ws)?;
+        let qb = step * nq;
+        let poses = forward_kinematics_poses(model, &q_batch[qb..qb + nq], ws)?;
         for (l, pose) in poses.iter().enumerate() {
             let tb = (step * nl + l) * 3;
             translations_out[tb] = pose.translation.x;

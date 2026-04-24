@@ -17,8 +17,9 @@ pub extern "C" fn pino_centroidal_map(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let ag_out = unsafe { as_mut_slice(ag_out_row_major_6xn, 6 * n)? };
         let ws_ref = unsafe { &mut (*ws).ws };
         let ag = algo::centroidal_map(model_ref, q, ws_ref).map_err(|_| Status::AlgoFailed)?;
@@ -38,8 +39,9 @@ pub extern "C" fn pino_centroidal_map_derivatives(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let dag_out = unsafe { as_mut_slice(dag_dq_out, 6 * n * n)? };
         let ws_ref = unsafe { &mut (*ws).ws };
         let dag = algo::centroidal_map_derivatives(model_ref, q, ws_ref)
@@ -62,8 +64,9 @@ pub extern "C" fn pino_centroidal_momentum(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let m_out = unsafe { as_mut_slice(momentum_out_6, 6)? };
         let com_out = unsafe { as_mut_slice(com_out_xyz, 3)? };
@@ -96,8 +99,9 @@ pub extern "C" fn pino_centroidal_momentum_rate(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let out = unsafe { as_mut_slice(hdot_out_6, 6)? };
@@ -130,8 +134,9 @@ pub extern "C" fn pino_centroidal_full_terms(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let ag_out = unsafe { as_mut_slice(ag_out_6xn, 6 * n)? };
@@ -180,8 +185,9 @@ pub extern "C" fn pino_centroidal_full_terms_with_contacts(
         check_non_null(model)?;
         check_non_null(ws as *const WorkspaceHandle)?;
         let model_ref = unsafe { &(*model).model };
+        let nq = model_ref.nq();
         let n = model_ref.nv();
-        let q = unsafe { as_slice(q, n)? };
+        let q = unsafe { as_slice(q, nq)? };
         let qd = unsafe { as_slice(qd, n)? };
         let qdd = unsafe { as_slice(qdd, n)? };
         let ag_out = unsafe { as_mut_slice(ag_out_6xn, 6 * n)? };
