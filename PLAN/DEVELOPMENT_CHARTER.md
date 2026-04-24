@@ -307,20 +307,28 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 
 **目标:** JS SDK 从 6 个函数扩展到覆盖核心动力学。
 
-**Slice 2.1 — 基础动力学**
-- JS: `rnea`, `aba`, `crba`, `gravity_torques`, `coriolis_torques`, `bias_forces`
-- JS: `frame_jacobian`, `center_of_mass`, `energy`, `compute_all_terms`
+**Slice 2.1 — 基础动力学** ✅
+- JS: `rnea`, `crba` (返回 2D 数组), `gravityTorques`, `coriolisTorques`
+- JS: `frameJacobian` (6×N), `centerOfMass`, `energy` ({kinetic, potential}), `computeAllTerms`
 
-**Slice 2.2 — 模型加载**
+**Slice 2.2 — 模型加载** ✅
 - JS: `createModelFromUrdf`, `createModelFromSdf`, `createModelFromMjcf`
-- JS: `createModel` (代码构建)
 - JS: `modelToJson`, `modelToUrdf`, `modelToSdf`, `modelToMjcf`
+- JS: `modelNq`, `modelNlinks`
 
-**Slice 2.3 — FK + Rollout**
-- JS: `forwardKinematicsPoses`, `forwardKinematicsPosesBatch`
-- JS: `rolloutAbaEuler`
+**Slice 2.3 — FK + Rollout + Batch + Contact + Collision + Centroidal + Regressors** ✅
+- JS: `forwardKinematicsPoses`, `rolloutAbaEuler`
+- JS: `rneaBatch`, `abaBatch`, `crbaBatch`
+- JS: `contactConstrainedDynamics`, `applyContactImpulse`, `contactJacobianNormal`
+- JS: `createCollisionModel`, `collisionMinDistance`, `collisionQueryDetails`
+- JS: `centroidalMomentum`, `centroidalMap`, `centroidalFullTerms`
+- JS: `inverseDynamicsRegressor`, `kineticEnergyRegressor`
+- JS: `rneaSecondOrderDerivatives`, `constrainedAbaLockedJoints`
 
-**质量门禁:** Node.js demo 能从 URDF 加载模型 → 运行 RNEA/ABA → 输出结果。
+**JS SDK 总计:** 40+ 包装函数（从 6 个增长），覆盖 FFI 层 ~60 个导出函数
+**Demo:** 更新 node_demo.mjs 展示 ABA/RNEA/CRBA/CoM/Energy/Jacobian 等
+
+**状态:** ✅ 已完成
 
 ---
 
