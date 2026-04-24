@@ -1,6 +1,6 @@
 [package]
 name = "pinocchio_wasm"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 license = "BSD-2-Clause"
 description = "Modern high-performance WASM-oriented rigid body dynamics kernel inspired by Pinocchio"
