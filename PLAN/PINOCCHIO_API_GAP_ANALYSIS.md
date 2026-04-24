@@ -259,7 +259,7 @@
 
 | # | 原版接口 | WASM 状态 | 备注 |
 |---|---------|-----------|------|
-| 7.1 | `aba(model, data, q, v, tau)` → q̈ | ⚠️ | 已实现, 但用 CRBA+Cholesky 而非 O(n) 递归 ABA |
+| 7.1 | `aba(model, data, q, v, tau)` → q̈ | ✅ | O(n) articulated-body 递推，支持所有 5 种关节类型 (Batch 3+7) |
 | 7.2 | 批量 ABA | ✅ | `aba_batch()` |
 | 7.3 | ABA 导数 (`computeABADerivatives`) | ⚠️ | 有限差分 `aba_derivatives()` |
 
@@ -387,7 +387,7 @@
 | 15.6 | 约束动力学导数 | ⚠️ | `constrained_dynamics_derivatives_locked_joints()` 有限差分 |
 | 15.7 | 冲量动力学导数 | ⚠️ | `impulse_dynamics_derivatives()` 有限差分 |
 
-> **关键差异**: 原版所有导数都有 O(n) 解析递归算法实现; WASM 版全部使用有限差分数值近似, 精度和性能较低.
+> **关键差异**: 原版所有导数都有 O(n) 解析递归算法实现; WASM 版大部分使用有限差分数值近似, 但 `rnea_derivatives` 的 dtau/dqdd 使用精确 CRBA, `aba_derivatives` 使用隐式 M⁻¹ 方法, `kinematics_derivatives` 使用解析 FK. 精度和性能仍有提升空间 (见 Batch 15 计划).
 
 ---
 
@@ -709,7 +709,7 @@ WASM 版本已实现的功能足以支撑以下核心工作流:
 | P1 | 空间代数类型 (Motion/Force/Inertia) | 代码不够规范, 难以扩展 | 添加 6D 空间类型 |
 | P1 | Jacobian 参考坐标系 (LOCAL/LOCAL_WORLD_ALIGNED) | 无法在本地坐标系下计算雅可比 | 添加参考帧选择参数 |
 | P1 | 逆向运动学 (IK) | 无 IK 求解器 | 实现基于雅可比的迭代 IK |
-| P1 | JS/Python SDK 完善 | 绑定只封装了 ABA, 50+函数未封装 | 系统性封装所有 FFI 函数 |
+| P1 | JS/Python SDK 完善 | JS SDK 已封装 ~50 个函数覆盖核心 API; Python 仅 5 个; ~20 个 FFI 仍缺 JS 包装 | 系统性封装剩余 FFI 函数 |
 
 #### P2 - 增强功能 (锦上添花)
 

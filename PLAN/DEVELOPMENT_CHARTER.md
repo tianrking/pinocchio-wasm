@@ -327,7 +327,7 @@ function modelDims(w, model) { return { nq, nv, nl }; }
 4 个 `createModelFrom*` 和 3 个 `modelTo*` 提取为工厂函数。
 
 **质量门禁:**
-- 对外 API 零变更 (所有 44 个 export 签名不变)
+- 对外 API 零变更 (所有 ~50 个 export 签名不变)
 - `node --check js/pinocchio_wasm.mjs` 通过
 - `node examples/js/node_demo.mjs` 运行无报错
 - 行数减少 ≥ 25% (目标: 1,423 → ~1,000)
@@ -411,7 +411,7 @@ pino_rollout_aba_euler, pino_neutral_configuration (Batch 8 新增)
 基于当前代码重写 `PLAN/AUDIT.md`:
 - 修正 "ABA 是 O(n³)" → "ABA 是 O(n)"
 - 修正 "仅支持 revolute" → "支持 5 种关节类型"
-- 修正 "JS SDK 6 个函数" → "JS SDK 44 个函数"
+- 修正 "JS SDK 6 个函数" → "JS SDK ~50 个函数"
 - 修正 "所有导数有限差分" → "混合实现 (FD + CRBA + 解析)"
 - 更新关节类型支持矩阵
 - 更新测试计数 (97)
