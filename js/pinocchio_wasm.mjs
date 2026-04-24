@@ -1,50 +1,21 @@
+import { createRuntime } from "./sdk/runtime.mjs";
+
 export async function loadPinocchioWasm(wasmBytes) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, {});
   const w = instance.exports;
-
-  const textEncoder = new TextEncoder();
-  const textDecoder = new TextDecoder();
-
-  function memoryU8() {
-    return new Uint8Array(w.memory.buffer);
-  }
-  function memoryF64() {
-    return new Float64Array(w.memory.buffer);
-  }
-  function memoryI32() {
-    return new Int32Array(w.memory.buffer);
-  }
-  function memoryU32() {
-    return new Uint32Array(w.memory.buffer);
-  }
-
-  function allocBytes(size) {
-    const ptr = w.pino_alloc(size);
-    if (!ptr) throw new Error("pino_alloc failed");
-    return ptr;
-  }
-
-  function freeBytes(ptr, size) {
-    w.pino_dealloc(ptr, size);
-  }
-
-  function writeBytes(ptr, bytes) {
-    memoryU8().set(bytes, ptr);
-  }
-
-  function writeF64Array(arr) {
-    const bytes = arr.length * 8;
-    const ptr = allocBytes(bytes);
-    memoryF64().set(arr, ptr / 8);
-    return { ptr, bytes };
-  }
-
-  function writeI32Array(arr) {
-    const bytes = arr.length * 4;
-    const ptr = allocBytes(bytes);
-    memoryI32().set(arr, ptr / 4);
-    return { ptr, bytes };
-  }
+  const {
+    textEncoder,
+    memoryU8,
+    memoryF64,
+    memoryI32,
+    memoryU32,
+    allocBytes,
+    freeBytes,
+    writeBytes,
+    writeF64Array,
+    writeI32Array,
+    readExportedString,
+  } = createRuntime(w);
 
   // ---------------------------------------------------------------------------
   // Model lifecycle
@@ -187,20 +158,6 @@ export async function loadPinocchioWasm(wasmBytes) {
 
     if (!model) throw new Error("pino_model_create failed");
     return model;
-  }
-
-  /**
-   * Helper to read a string exported via double-indirect pointer (out_ptr, out_len).
-   */
-  function readExportedString(outPtrPtr, outLenPtr) {
-    const u32 = memoryU32();
-    // outPtrPtr/outLenPtr are byte offsets into U32 view
-    const strPtr = Number(u32[outPtrPtr / 4]);
-    const strLen = Number(u32[outLenPtr / 4]);
-    const bytes = memoryU8().slice(strPtr, strPtr + strLen);
-    // Free the string buffer allocated by WASM
-    freeBytes(strPtr, strLen);
-    return textDecoder.decode(bytes);
   }
 
   function modelToJson(model) {

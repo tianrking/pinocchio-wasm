@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;
 use crate::model::{Model, Workspace};

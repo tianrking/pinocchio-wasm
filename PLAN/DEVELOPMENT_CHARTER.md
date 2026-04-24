@@ -343,7 +343,7 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 - 旧 CRBA+Cholesky 正动力学保留为 `aba_crba()`，用于交叉验证和回归保护。
 - 覆盖 revolute、fixed、prismatic、混合关节、零速度/零重力、多构型链的 `aba` vs `aba_crba` 数值一致性测试。
 - 质量门禁: `cargo test --all-targets --all-features` 全部通过，累计 81 个测试；`node --check js/pinocchio_wasm.mjs` 通过。
-- 备注: `cargo clippy --all-targets --all-features -- -D warnings` 当前仍被既有 batch/contact/rollout API 的 `too_many_arguments` 和旧循环 lint 阻塞，非 Batch 3 新增功能失败。
+- 备注: Batch 7 已对 batch/contact/rollout 的 FFI-shaped API 加局部 `too_many_arguments` 策略；Clippy 仅剩旧循环/测试风格提示。
 
 **Slice 3.1 — 实现 Articulated Body Algorithm**
 - 实现 O(n) 递归前向 pass + 后向 pass
@@ -416,12 +416,19 @@ feat(js): wrap rnea, crba, jacobian, com, energy in JS SDK
 - 新增 `JointType::Spherical` (nq=4/nv=3) 与 `JointType::FreeFlyer` (nq=7/nv=6)，模型索引拆分为 `idx_q`/`idx_v`，状态检查正式支持 `nq != nv`。
 - FK/RNEA/Jacobian/CRBA/ABA/Contact/Collision/Centroidal/Regressor/Batch/Constrained/Derivatives 统一适配配置维度 `nq` 与速度维度 `nv`。
 - 多自由度关节的 RNEA 投影改为逐 DoF motion-subspace 投影，Jacobian/contact Jacobian 使用 `world_motion_linear/angular` 填列。
-- ABA 对 FreeFlyer/Spherical 使用稳定 CRBA solve fallback；Batch 3 的 O(n) ABA 继续用于 Fixed/Revolute/Prismatic 1-DoF 树。
+- ABA 已升级为通用多 DoF articulated-body 递推；FreeFlyer/Spherical 不再静默回退 CRBA+Cholesky。
 - 新增四元数到旋转矩阵、列向量读取、四元数归一化/乘法和 rollout 中的四元数流形积分。
 - JSON/URDF/SDF/MJCF 支持 `spherical`/`ball` 与 `freeflyer`/`floating`/`free` 解析和序列化。
 - C FFI 新增 `pino_model_nv`，所有 q/qd/qdd/tau 指针长度按 `nq`/`nv` 分离；JS SDK 新增 `modelNv()` 并同步所有核心 wrapper 维度。
 - 新增 `tests/floating_joints.rs`，覆盖 Spherical、FreeFlyer、RNEA/ABA/Jacobian、JSON roundtrip 与 URDF/SDF/MJCF loader。
 - 质量门禁: `cargo test --all-targets --all-features` 全部通过，累计 97 个测试；`node --check js/pinocchio_wasm.mjs` 通过。
+
+**Batch 7 加固记录:**
+- `aba()` 去除 FreeFlyer/Spherical O(n³) fallback，改为每关节小矩阵 `D/U/u` 的 O(n) 多 DoF ABA。
+- Workspace 增加 ABA scratch buffers，减少 batch ABA 中每次调用的临时堆分配。
+- JS SDK 内存运行时抽到 `js/sdk/runtime.mjs`，保留 `js/pinocchio_wasm.mjs` 入口和对外 API 不变。
+- 新增 `include/pinocchio_wasm.h`，同步声明当前 72 个 C ABI `pino_*` 导出函数。
+- 更新 `PLAN/AUDIT.md` 与 `PLAN/PINOCCHIO_API_GAP_ANALYSIS.md`，修正 FreeFlyer/Spherical/Fixed/Prismatic 与 FFI 覆盖状态。
 
 **Slice 6.1 — 关节类型**
 - `FreeFlyer` (nq=7/nv=6, 四元数表示)

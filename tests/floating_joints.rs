@@ -1,4 +1,4 @@
-use pinocchio_wasm::algo::{aba, bias_forces, crba, frame_jacobian, rnea};
+use pinocchio_wasm::algo::{aba, aba_crba, bias_forces, crba, frame_jacobian, rnea};
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::{Joint, JointType, Link, Model, Workspace};
 
@@ -56,6 +56,22 @@ fn assert_rnea_closure(model: &Model, q: &[f64], qd: &[f64], qdd: &[f64]) {
     }
 }
 
+fn assert_aba_matches_crba(model: &Model, q: &[f64], qd: &[f64], tau: &[f64]) {
+    let g = Vec3::new(0.0, 0.0, -9.81);
+    let mut ws_aba = Workspace::new(model);
+    let mut ws_crba = Workspace::new(model);
+    let qdd_aba = aba(model, q, qd, tau, g, &mut ws_aba).expect("aba");
+    let qdd_crba = aba_crba(model, q, qd, tau, g, &mut ws_crba).expect("aba_crba");
+    for i in 0..model.nv() {
+        assert!(
+            (qdd_aba[i] - qdd_crba[i]).abs() < 1e-8,
+            "qdd mismatch at {i}: aba={} crba={}",
+            qdd_aba[i],
+            qdd_crba[i]
+        );
+    }
+}
+
 #[test]
 fn spherical_joint_dimensions_and_dynamics() {
     let model = spherical_model();
@@ -72,7 +88,15 @@ fn spherical_joint_dimensions_and_dynamics() {
     let jac = frame_jacobian(&model, &q, 1, &mut ws).expect("jacobian");
     assert_eq!(jac.len(), 6 * model.nv());
     let n = model.nv();
-    assert!(jac[3 * n].abs() > 0.0 || jac[4 * n].abs() > 0.0 || jac[5 * n].abs() > 0.0);
+    for axis in 0..3 {
+        assert!(
+            jac[(3 + axis) * n + axis].abs() > 0.9,
+            "spherical angular jacobian axis {axis} should be non-zero"
+        );
+    }
+
+    let tau = [0.7, -0.2, 0.4];
+    assert_aba_matches_crba(&model, &q, &qd, &tau);
 }
 
 #[test]
@@ -95,6 +119,7 @@ fn freeflyer_joint_dimensions_dynamics_and_aba() {
     for i in 0..model.nv() {
         assert!((tau[i] - tau_recon[i]).abs() < 1e-8);
     }
+    assert_aba_matches_crba(&model, &q, &qd, &tau);
 }
 
 #[test]

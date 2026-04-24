@@ -58,32 +58,6 @@ pub(crate) fn spatial_inertia_from_blocks(theta: Mat3, h_mat: Mat3, m_mat: Mat3)
     out
 }
 
-pub(crate) fn spatial_reduce(
-    i_mat: &SpatialMatrix,
-    u_vec: SpatialVector,
-    d_inv: f64,
-) -> SpatialMatrix {
-    let mut out = *i_mat;
-    for r in 0..6 {
-        for c in 0..6 {
-            out[r][c] -= u_vec[r] * u_vec[c] * d_inv;
-        }
-    }
-    out
-}
-
-pub(crate) fn spatial_bias_reduce(
-    p_vec: SpatialVector,
-    u_vec: SpatialVector,
-    ud: f64,
-) -> SpatialVector {
-    let mut out = p_vec;
-    for i in 0..6 {
-        out[i] += u_vec[i] * ud;
-    }
-    out
-}
-
 pub(crate) fn motion_shift_matrix(r_parent_to_acc_origin: Vec3) -> SpatialMatrix {
     let mut out = spatial_zero();
     for i in 0..3 {

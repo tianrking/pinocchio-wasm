@@ -17,7 +17,7 @@
 | 4 | 重力项 | `gravity_torques` | ✅ 完整 | qd=0, qdd=0 的 RNEA |
 | 5 | 科氏力项 | `coriolis_torques` | ✅ 完整 | qdd=0, gravity=0 的 RNEA |
 | 6 | 质量矩阵 (CRBA) | `crba` | ✅ 完整 | 逐列 RNEA + 对称化 |
-| 7 | 正动力学 (ABA) | `aba` | ✅ 完整 | ⚠️ O(n³) 实现 (CRBA+Cholesky)，非标准 O(n) ABA |
+| 7 | 正动力学 (ABA) | `aba` | ✅ 完整 | O(n) articulated-body 递推；支持 1-DoF、Spherical、FreeFlyer |
 | 8 | 帧雅可比 | `frame_jacobian` | ✅ 完整 | 6×n 矩阵 |
 | 9 | 质心位置 | `center_of_mass` | ✅ 完整 | 加权质心 |
 | 10 | 动能 | `kinetic_energy` | ✅ 完整 | 平动+转动 |
@@ -122,11 +122,11 @@
 | 69 | 模型构建 | `Model::new` | ✅ 完整 | 拓扑验证 |
 | 70 | JSON 加载 | `Model::from_json_str` | ✅ 完整 | |
 | 71 | JSON 导出 | `Model::to_json_string` | ✅ 完整 | |
-| 72 | URDF 加载 | `Model::from_urdf_str` | ✅ 完整 | ⚠️ 仅 revolute/continuous 关节 |
+| 72 | URDF 加载 | `Model::from_urdf_str` | ✅ 完整 | 支持 revolute/continuous/prismatic/fixed/ball/floating |
 | 73 | URDF 导出 | `Model::to_urdf_string` | ✅ 完整 | |
-| 74 | SDF 加载 | `Model::from_sdf_str` | ✅ 完整 | ⚠️ 仅 revolute/continuous 关节 |
+| 74 | SDF 加载 | `Model::from_sdf_str` | ✅ 完整 | 支持 revolute/continuous/prismatic/fixed/ball/floating |
 | 75 | SDF 导出 | `Model::to_sdf_string` | ✅ 完整 | |
-| 76 | MJCF 加载 | `Model::from_mjcf_str` | ✅ 完整 | ⚠️ 仅 hinge 关节 |
+| 76 | MJCF 加载 | `Model::from_mjcf_str` | ✅ 完整 | 支持 hinge/slide/fixed/ball/free |
 | 77 | MJCF 导出 | `Model::to_mjcf_string` | ✅ 完整 | |
 | 78 | Workspace 创建 | `Workspace::new` | ✅ 完整 | |
 
@@ -134,7 +134,7 @@
 
 ## 二、FFI 导出覆盖度 (src/ffi/mod.rs)
 
-FFI 层共导出 **66 个** `pino_*` 函数。
+FFI 层共导出 **72 个** `pino_*` 函数，并提供 `include/pinocchio_wasm.h` C 头文件。
 
 ### 与内核算法的对应关系
 

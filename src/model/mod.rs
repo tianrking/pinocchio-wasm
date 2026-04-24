@@ -5,6 +5,7 @@ pub mod urdf;
 
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::{Mat3, Transform, Vec3};
+use crate::core::spatial::{SpatialMatrix, SpatialVector, spatial_vec_zero, spatial_zero};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,6 +535,11 @@ pub struct Workspace {
     pub acc_origin: Vec<Vec3>,
     pub force: Vec<Vec3>,
     pub torque: Vec<Vec3>,
+    pub(crate) aba_inertia: Vec<SpatialMatrix>,
+    pub(crate) aba_bias: Vec<SpatialVector>,
+    pub(crate) aba_d: Vec<SpatialMatrix>,
+    pub(crate) aba_u: Vec<SpatialVector>,
+    pub(crate) aba_u_cols: Vec<SpatialMatrix>,
 }
 
 impl Workspace {
@@ -552,6 +558,11 @@ impl Workspace {
             acc_origin: vec![Vec3::zero(); nlinks],
             force: vec![Vec3::zero(); nlinks],
             torque: vec![Vec3::zero(); nlinks],
+            aba_inertia: vec![spatial_zero(); nlinks],
+            aba_bias: vec![spatial_vec_zero(); nlinks],
+            aba_d: vec![spatial_zero(); njoints],
+            aba_u: vec![spatial_vec_zero(); njoints],
+            aba_u_cols: vec![spatial_zero(); njoints],
         }
     }
 }

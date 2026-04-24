@@ -127,20 +127,20 @@
 | 3.2 | `JointModelRevoluteUnalignedTpl` 任意轴旋转 | 1/1 | ✅ | `Joint::revolute(axis, origin)` |
 | 3.3 | `JointModelRevoluteUnboundedTpl<X/Y/Z>` 连续旋转(cos,sin) | 2/1 | ❌ | |
 | 3.4 | `JointModelRevoluteUnboundedUnalignedTpl` | 2/1 | ❌ | |
-| 3.5 | `JointModelPrismaticTpl<X/Y/Z>` 沿轴平移 | 1/1 | ❌ | |
-| 3.6 | `JointModelPrismaticUnalignedTpl` 任意轴平移 | 1/1 | ❌ | |
-| 3.7 | `JointModelSphericalTpl` 球关节(四元数) | 4/3 | ❌ | |
+| 3.5 | `JointModelPrismaticTpl<X/Y/Z>` 沿轴平移 | 1/1 | ⚠️ | 支持通用轴，未特化 X/Y/Z |
+| 3.6 | `JointModelPrismaticUnalignedTpl` 任意轴平移 | 1/1 | ✅ | `Joint::prismatic(axis, origin)` |
+| 3.7 | `JointModelSphericalTpl` 球关节(四元数) | 4/3 | ✅ | `Joint::spherical(origin)`，nq/nv 分离 |
 | 3.8 | `JointModelSphericalZYXTpl` 球关节(Euler ZYX) | 3/3 | ❌ | |
 | 3.9 | `JointModelEllipsoidTpl` 椭球关节 | 4/3 | ❌ | |
 | 3.10 | `JointModelTranslationTpl` 3D平移 | 3/3 | ❌ | |
-| 3.11 | `JointModelFreeFlyerTpl` 6自由度浮动基(四元数) | 7/6 | ❌ | |
+| 3.11 | `JointModelFreeFlyerTpl` 6自由度浮动基(四元数) | 7/6 | ✅ | `Joint::freeflyer(origin)`，nq=7/nv=6 |
 | 3.12 | `JointModelPlanarTpl` 平面(2D平移+1旋转) | 3/3 | ❌ | |
 | 3.13 | `JointModelCompositeTpl` 复合关节 | 变化 | ❌ | |
 | 3.14 | `JointModelMimicTpl` 模仿关节 | 变化 | ❌ | |
 | 3.15 | `JointModelHelicalTpl<X/Y/Z>` 螺旋关节 | 1/1 | ❌ | |
 | 3.16 | `JointModelHelicalUnalignedTpl` 任意轴螺旋 | 1/1 | ❌ | |
 | 3.17 | `JointModelUniversalTpl` 万向节(2旋转) | 2/2 | ❌ | |
-| 3.18 | Fixed Joint 固定关节 | 0/0 | ❌ | |
+| 3.18 | Fixed Joint 固定关节 | 0/0 | ✅ | `Joint::fixed(origin)` |
 | 3.19 | Joint 基类方法 (`id`, `idx_q`, `idx_v`, `nq`, `nv`, `calc`) | - | ⚠️ | 有基础方法, 不完全 |
 
 ---
@@ -695,7 +695,7 @@ WASM 版本已实现的功能足以支撑以下核心工作流:
 
 | 优先级 | 缺失功能 | 影响 | 建议 |
 |--------|---------|------|------|
-| P0 | 更多关节类型 (FreeFlyer, Spherical, Prismatic, Fixed) | 无法建模浮动基、球关节、平移关节、人形机器人 | 分批实现: 先 Fixed + Prismatic, 再 Spherical + FreeFlyer |
+| P0 | 更多关节类型 (FreeFlyer, Spherical, Prismatic, Fixed) | ✅ 已解除主要阻塞 | 已实现 Fixed/Prismatic/Spherical/FreeFlyer；剩余为 Planar/Composite/Mimic/Helical/Universal 等扩展关节 |
 | P0 | 解析导数替代有限差分 | 精度和性能问题 | 实现解析 RNEA/ABA 导数递归算法 |
 | P0 | 李群运算 (integrate/difference on SO(3)/SE(3)) | 无法正确处理四元数/连续旋转关节 | 实现 exp/log 映射 |
 | P0 | Frame 系统 | 无法定义末端执行器/传感器位姿 | 添加 Frame struct 和帧算法 |

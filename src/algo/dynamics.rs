@@ -180,6 +180,100 @@ pub fn cholesky_solve(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>> {
     Ok(x)
 }
 
+fn solve_spd_fixed(a: &[[f64; 6]; 6], b: &[f64; 6], n: usize) -> Result<[f64; 6]> {
+    if n > 6 {
+        return Err(PinocchioError::invalid_model(
+            "joint dimension exceeds fixed ABA block size",
+        ));
+    }
+
+    let mut l = [[0.0; 6]; 6];
+    for i in 0..n {
+        for j in 0..=i {
+            let mut sum = a[i][j];
+            for k in 0..j {
+                sum -= l[i][k] * l[j][k];
+            }
+            if i == j {
+                if sum <= 1e-12 {
+                    return Err(PinocchioError::SingularMatrix);
+                }
+                l[i][j] = sum.sqrt();
+            } else {
+                l[i][j] = sum / l[j][j];
+            }
+        }
+    }
+
+    let mut y = [0.0; 6];
+    for i in 0..n {
+        let mut sum = b[i];
+        for (k, yk) in y.iter().take(i).copied().enumerate() {
+            sum -= l[i][k] * yk;
+        }
+        y[i] = sum / l[i][i];
+    }
+
+    let mut x = [0.0; 6];
+    for i in (0..n).rev() {
+        let mut sum = y[i];
+        for k in (i + 1)..n {
+            sum -= l[k][i] * x[k];
+        }
+        x[i] = sum / l[i][i];
+    }
+
+    Ok(x)
+}
+
+fn joint_motion_subspace(ws: &Workspace, vi: usize, k: usize) -> SpatialVector {
+    spatial_vec(
+        ws.world_motion_angular[vi + k],
+        ws.world_motion_linear[vi + k],
+    )
+}
+
+fn reduced_articulated_body(
+    inertia: &SpatialMatrix,
+    bias: SpatialVector,
+    u_cols: &SpatialMatrix,
+    d: &SpatialMatrix,
+    u: SpatialVector,
+    nv: usize,
+) -> Result<(SpatialMatrix, SpatialVector)> {
+    let mut w_cols = spatial_zero();
+    for col in 0..nv {
+        let mut rhs = [0.0; 6];
+        rhs[col] = 1.0;
+        let x = solve_spd_fixed(d, &rhs, nv)?;
+        for r in 0..6 {
+            for b in 0..nv {
+                w_cols[r][col] += u_cols[r][b] * x[b];
+            }
+        }
+    }
+
+    let mut reduced_i = *inertia;
+    for r in 0..6 {
+        for c in 0..6 {
+            let mut delta = 0.0;
+            for a in 0..nv {
+                delta += w_cols[r][a] * u_cols[c][a];
+            }
+            reduced_i[r][c] -= delta;
+        }
+    }
+
+    let mut reduced_b = bias;
+    for r in 0..6 {
+        for a in 0..nv {
+            reduced_b[r] += w_cols[r][a] * u[a];
+        }
+    }
+
+    Ok((reduced_i, reduced_b))
+}
+
 /// O(n³) ABA: compute joint accelerations via CRBA + Cholesky decomposition.
 /// This is kept for cross-validation against the O(n) ABA.
 pub fn aba_crba(
@@ -239,25 +333,22 @@ pub fn aba(
         });
     }
 
-    if model.links.iter().skip(1).any(|link| {
-        link.joint.as_ref().is_some_and(|joint| {
-            !matches!(
-                joint.jtype,
-                JointType::Revolute | JointType::Prismatic | JointType::Fixed
-            )
-        })
-    }) {
-        return aba_crba(model, q, qd, tau, gravity, ws);
-    }
-
     let nlinks = model.nlinks();
     let njoints = model.njoints();
+    if ws.aba_inertia.len() != nlinks
+        || ws.aba_bias.len() != nlinks
+        || ws.aba_d.len() != njoints
+        || ws.aba_u.len() != njoints
+        || ws.aba_u_cols.len() != njoints
+    {
+        *ws = Workspace::new(model);
+    }
 
-    let mut articulated_inertia = vec![spatial_zero(); nlinks];
-    let mut articulated_bias = vec![spatial_vec_zero(); nlinks];
-    let mut d = vec![0.0; njoints];
-    let mut u = vec![0.0; njoints];
-    let mut u_vec = vec![spatial_vec_zero(); njoints];
+    ws.aba_inertia.fill(spatial_zero());
+    ws.aba_bias.fill(spatial_vec_zero());
+    ws.aba_d.fill(spatial_zero());
+    ws.aba_u.fill(spatial_vec_zero());
+    ws.aba_u_cols.fill(spatial_zero());
 
     // ========================================================================
     // Pass 1: Forward kinematics (with qdd=0 to get velocities and bias terms)
@@ -293,7 +384,7 @@ pub fn aba(
         );
         let h_mat = Mat3::skew(r_com).scale(link.mass);
         let m_mat = Mat3::identity().scale(link.mass);
-        articulated_inertia[i] = spatial_inertia_from_blocks(theta, h_mat, m_mat);
+        ws.aba_inertia[i] = spatial_inertia_from_blocks(theta, h_mat, m_mat);
 
         // Compute the bias force: the net force/torque on the link from the
         // FK-computed motion (which includes gravity and Coriolis effects
@@ -305,7 +396,7 @@ pub fn aba(
         let f = com_acc * link.mass;
         let n_origin = i_world.mul_vec(ws.alpha[i]) + ws.omega[i].cross(iw) + r_com.cross(f);
 
-        articulated_bias[i] = spatial_vec(n_origin, f);
+        ws.aba_bias[i] = spatial_vec(n_origin, f);
     }
 
     // ========================================================================
@@ -321,40 +412,44 @@ pub fn aba(
         let parent = model.links[link_idx].parent.expect("validated model");
         let r_force = ws.world_pose[link_idx].translation - ws.world_pose[parent].translation;
         let r_acc = match joint.jtype {
-            JointType::Prismatic => ws.world_joint_origin[jidx] - ws.world_pose[parent].translation,
-            JointType::Revolute | JointType::Fixed => r_force,
-            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
+            JointType::Prismatic | JointType::FreeFlyer => {
+                ws.world_joint_origin[jidx] - ws.world_pose[parent].translation
+            }
+            JointType::Revolute | JointType::Fixed | JointType::Spherical => r_force,
         };
 
         let (reduced_inertia, reduced_bias) = if joint.nv() == 0 {
-            (articulated_inertia[link_idx], articulated_bias[link_idx])
+            (ws.aba_inertia[link_idx], ws.aba_bias[link_idx])
         } else {
             let vi = model.idx_v(jidx);
-            let axis = ws.world_joint_axis[jidx];
-            let s_vec = match joint.jtype {
-                JointType::Revolute => spatial_vec(axis, Vec3::zero()),
-                JointType::Prismatic => spatial_vec(Vec3::zero(), axis),
-                JointType::Fixed | JointType::Spherical | JointType::FreeFlyer => unreachable!(),
-            };
-            let ia_s = spatial_mat_vec(&articulated_inertia[link_idx], s_vec);
-            d[jidx] = spatial_dot(s_vec, ia_s);
-            u[jidx] = tau[vi] - spatial_dot(s_vec, articulated_bias[link_idx]);
-            u_vec[jidx] = ia_s;
-
-            if d[jidx].abs() < 1e-30 {
-                return Err(PinocchioError::SingularMatrix);
+            let joint_nv = joint.nv();
+            for a in 0..joint_nv {
+                let s_a = joint_motion_subspace(ws, vi, a);
+                let ia_s = spatial_mat_vec(&ws.aba_inertia[link_idx], s_a);
+                ws.aba_u[jidx][a] = tau[vi + a] - spatial_dot(s_a, ws.aba_bias[link_idx]);
+                for r in 0..6 {
+                    ws.aba_u_cols[jidx][r][a] = ia_s[r];
+                }
+                for b in 0..joint_nv {
+                    let s_b = joint_motion_subspace(ws, vi, b);
+                    ws.aba_d[jidx][b][a] = spatial_dot(s_b, ia_s);
+                }
             }
-            let d_inv = 1.0 / d[jidx];
-            (
-                spatial_reduce(&articulated_inertia[link_idx], ia_s, d_inv),
-                spatial_bias_reduce(articulated_bias[link_idx], ia_s, u[jidx] * d_inv),
-            )
+
+            reduced_articulated_body(
+                &ws.aba_inertia[link_idx],
+                ws.aba_bias[link_idx],
+                &ws.aba_u_cols[jidx],
+                &ws.aba_d[jidx],
+                ws.aba_u[jidx],
+                joint_nv,
+            )?
         };
 
         let shifted_inertia = transform_spatial_inertia(&reduced_inertia, r_acc, r_force);
         let shifted_bias = transform_spatial_force(reduced_bias, r_force);
-        spatial_add_assign(&mut articulated_inertia[parent], &shifted_inertia);
-        spatial_vec_add_assign(&mut articulated_bias[parent], shifted_bias);
+        spatial_add_assign(&mut ws.aba_inertia[parent], &shifted_inertia);
+        spatial_vec_add_assign(&mut ws.aba_bias[parent], shifted_bias);
     }
 
     // ========================================================================
@@ -386,46 +481,41 @@ pub fn aba(
         }
 
         let vi = model.idx_v(jidx);
-        let axis = ws.world_joint_axis[jidx];
-
         // The joint acceleration uses the parent delta acceleration shifted
         // to this link origin, because all articulated quantities are stored
         // at the child link origin.
         let r_parent_to_child = match joint.jtype {
-            JointType::Prismatic => ws.world_joint_origin[jidx] - ws.world_pose[parent].translation,
-            JointType::Revolute => {
+            JointType::Prismatic | JointType::FreeFlyer => {
+                ws.world_joint_origin[jidx] - ws.world_pose[parent].translation
+            }
+            JointType::Revolute | JointType::Spherical => {
                 ws.world_pose[link_idx].translation - ws.world_pose[parent].translation
             }
-            JointType::Fixed | JointType::Spherical | JointType::FreeFlyer => unreachable!(),
+            JointType::Fixed => unreachable!(),
         };
         let base_alpha = delta_alpha[parent];
         let base_acc = delta_a[parent] + base_alpha.cross(r_parent_to_child);
 
         let base_spatial_acc = spatial_vec(base_alpha, base_acc);
-        let qdd_j = match joint.jtype {
-            JointType::Revolute => (u[jidx] - spatial_dot(u_vec[jidx], base_spatial_acc)) / d[jidx],
-            JointType::Prismatic => {
-                (u[jidx] - spatial_dot(u_vec[jidx], base_spatial_acc)) / d[jidx]
+        let joint_nv = joint.nv();
+        let mut rhs = [0.0; 6];
+        for a in 0..joint_nv {
+            let mut u_dot_base = 0.0;
+            for r in 0..6 {
+                u_dot_base += ws.aba_u_cols[jidx][r][a] * base_spatial_acc[r];
             }
-            JointType::Fixed => unreachable!(),
-            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
-        };
-
-        qdd[vi] = qdd_j;
+            rhs[a] = ws.aba_u[jidx][a] - u_dot_base;
+        }
+        let qdd_joint = solve_spd_fixed(&ws.aba_d[jidx], &rhs, joint_nv)?;
+        qdd[vi..(joint_nv + vi)].copy_from_slice(&qdd_joint[..joint_nv]);
 
         // Propagate the delta acceleration from parent to this link.
         // Only terms that depend on qdd change; Coriolis and centripetal are constant.
-        match joint.jtype {
-            JointType::Revolute => {
-                delta_alpha[link_idx] = base_alpha + axis * qdd_j;
-                delta_a[link_idx] = base_acc;
-            }
-            JointType::Prismatic => {
-                delta_alpha[link_idx] = base_alpha;
-                delta_a[link_idx] = base_acc + axis * qdd_j;
-            }
-            JointType::Fixed => unreachable!(),
-            JointType::Spherical | JointType::FreeFlyer => unreachable!(),
+        delta_alpha[link_idx] = base_alpha;
+        delta_a[link_idx] = base_acc;
+        for (k, qdd_k) in qdd_joint.iter().copied().enumerate().take(joint_nv) {
+            delta_alpha[link_idx] += ws.world_motion_angular[vi + k] * qdd_k;
+            delta_a[link_idx] += ws.world_motion_linear[vi + k] * qdd_k;
         }
     }
 
