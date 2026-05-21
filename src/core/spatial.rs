@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use super::math::{Mat3, Vec3};
 
 pub(crate) type SpatialMatrix = [[f64; 6]; 6];

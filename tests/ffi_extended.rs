@@ -1,3 +1,5 @@
+#![allow(clippy::useless_vec)]
+
 use pinocchio_wasm::ffi::{
     pino_aba_batch, pino_model_create_from_json, pino_model_create_from_mjcf,
     pino_model_create_from_sdf, pino_model_create_from_urdf, pino_model_free, pino_model_nq,

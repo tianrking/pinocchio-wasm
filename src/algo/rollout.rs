@@ -164,13 +164,7 @@ pub fn normalize_configuration(model: &Model, q: &[f64]) -> Result<Vec<f64>> {
                 out[qi..qi + 4].copy_from_slice(&nq.to_array());
             }
             JointType::FreeFlyer => {
-                let nq = Quat::from_array([
-                    q[qi + 3],
-                    q[qi + 4],
-                    q[qi + 5],
-                    q[qi + 6],
-                ])
-                .normalize();
+                let nq = Quat::from_array([q[qi + 3], q[qi + 4], q[qi + 5], q[qi + 6]]).normalize();
                 out[qi + 3..qi + 7].copy_from_slice(&nq.to_array());
             }
             _ => {}
@@ -195,19 +189,13 @@ pub fn is_normalized(model: &Model, q: &[f64], tol: f64) -> Result<bool> {
         let qi = model.idx_q(j);
         match joint.jtype {
             JointType::Spherical => {
-                let q4 =
-                    Quat::from_array([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]);
+                let q4 = Quat::from_array([q[qi], q[qi + 1], q[qi + 2], q[qi + 3]]);
                 if !q4.is_normalized(tol) {
                     return Ok(false);
                 }
             }
             JointType::FreeFlyer => {
-                let q4 = Quat::from_array([
-                    q[qi + 3],
-                    q[qi + 4],
-                    q[qi + 5],
-                    q[qi + 6],
-                ]);
+                let q4 = Quat::from_array([q[qi + 3], q[qi + 4], q[qi + 5], q[qi + 6]]);
                 if !q4.is_normalized(tol) {
                     return Ok(false);
                 }
@@ -306,10 +294,8 @@ pub fn difference_configuration(model: &Model, q0: &[f64], q1: &[f64]) -> Result
             }
             JointType::Fixed => {}
             JointType::Spherical => {
-                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]])
-                    .normalize();
-                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]])
-                    .normalize();
+                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]]).normalize();
+                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]]).normalize();
                 let diff = a.conjugate().mul(b).normalize();
                 let omega = diff.log();
                 out[vi] = omega.x;
@@ -320,20 +306,10 @@ pub fn difference_configuration(model: &Model, q0: &[f64], q1: &[f64]) -> Result
                 out[vi] = q1[qi] - q0[qi];
                 out[vi + 1] = q1[qi + 1] - q0[qi + 1];
                 out[vi + 2] = q1[qi + 2] - q0[qi + 2];
-                let a = Quat::from_array([
-                    q0[qi + 3],
-                    q0[qi + 4],
-                    q0[qi + 5],
-                    q0[qi + 6],
-                ])
-                .normalize();
-                let b = Quat::from_array([
-                    q1[qi + 3],
-                    q1[qi + 4],
-                    q1[qi + 5],
-                    q1[qi + 6],
-                ])
-                .normalize();
+                let a =
+                    Quat::from_array([q0[qi + 3], q0[qi + 4], q0[qi + 5], q0[qi + 6]]).normalize();
+                let b =
+                    Quat::from_array([q1[qi + 3], q1[qi + 4], q1[qi + 5], q1[qi + 6]]).normalize();
                 let diff = a.conjugate().mul(b).normalize();
                 let omega = diff.log();
                 out[vi + 3] = omega.x;
@@ -375,10 +351,8 @@ pub fn interpolate_configuration(
             }
             JointType::Fixed => {}
             JointType::Spherical => {
-                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]])
-                    .normalize();
-                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]])
-                    .normalize();
+                let a = Quat::from_array([q0[qi], q0[qi + 1], q0[qi + 2], q0[qi + 3]]).normalize();
+                let b = Quat::from_array([q1[qi], q1[qi + 1], q1[qi + 2], q1[qi + 3]]).normalize();
                 let s = a.slerp(b, alpha);
                 out[qi..qi + 4].copy_from_slice(&s.to_array());
             }
@@ -386,20 +360,10 @@ pub fn interpolate_configuration(
                 out[qi] = (1.0 - alpha) * q0[qi] + alpha * q1[qi];
                 out[qi + 1] = (1.0 - alpha) * q0[qi + 1] + alpha * q1[qi + 1];
                 out[qi + 2] = (1.0 - alpha) * q0[qi + 2] + alpha * q1[qi + 2];
-                let a = Quat::from_array([
-                    q0[qi + 3],
-                    q0[qi + 4],
-                    q0[qi + 5],
-                    q0[qi + 6],
-                ])
-                .normalize();
-                let b = Quat::from_array([
-                    q1[qi + 3],
-                    q1[qi + 4],
-                    q1[qi + 5],
-                    q1[qi + 6],
-                ])
-                .normalize();
+                let a =
+                    Quat::from_array([q0[qi + 3], q0[qi + 4], q0[qi + 5], q0[qi + 6]]).normalize();
+                let b =
+                    Quat::from_array([q1[qi + 3], q1[qi + 4], q1[qi + 5], q1[qi + 6]]).normalize();
                 let s = a.slerp(b, alpha);
                 out[qi + 3..qi + 7].copy_from_slice(&s.to_array());
             }
@@ -417,7 +381,12 @@ fn lcg_next_f64(state: &mut u64) -> f64 {
     (lcg_next_u64(state) as f64) / (u64::MAX as f64)
 }
 
-pub fn random_configuration(model: &Model, lower: &[f64], upper: &[f64], seed: u64) -> Result<Vec<f64>> {
+pub fn random_configuration(
+    model: &Model,
+    lower: &[f64],
+    upper: &[f64],
+    seed: u64,
+) -> Result<Vec<f64>> {
     if lower.len() != model.nq() || upper.len() != model.nq() {
         return Err(PinocchioError::DimensionMismatch {
             expected: model.nq(),

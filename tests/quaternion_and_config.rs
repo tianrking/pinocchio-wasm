@@ -4,7 +4,7 @@ use pinocchio_wasm::algo::{
 };
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::core::quaternion::Quat;
-use pinocchio_wasm::{Joint, Link, Model, Workspace};
+use pinocchio_wasm::{Joint, Link, Model};
 
 fn planar_two_link() -> Model {
     let i = Mat3::identity();
@@ -93,7 +93,13 @@ fn quat_roundtrip_axis_angle() {
 
 #[test]
 fn quat_rotation_matrix_roundtrip() {
-    let q = Quat::new(0.7071, 0.0, 0.7071, 0.0).normalize();
+    let q = Quat::new(
+        std::f64::consts::FRAC_1_SQRT_2,
+        0.0,
+        std::f64::consts::FRAC_1_SQRT_2,
+        0.0,
+    )
+    .normalize();
     let m = q.to_rotation_matrix();
     let q2 = Quat::from_rotation_matrix(&m);
     let dot = q.w * q2.w + q.x * q2.x + q.y * q2.y + q.z * q2.z;
@@ -188,7 +194,10 @@ fn integrate_spherical_roundtrip() {
     let q1 = integrate_model_configuration(&model, &q0, &v, dt).expect("integrate");
     assert_eq!(q1.len(), 4);
     let q1_norm = (q1[0] * q1[0] + q1[1] * q1[1] + q1[2] * q1[2] + q1[3] * q1[3]).sqrt();
-    assert!((q1_norm - 1.0).abs() < 1e-8, "quaternion not normalized: norm={q1_norm}");
+    assert!(
+        (q1_norm - 1.0).abs() < 1e-8,
+        "quaternion not normalized: norm={q1_norm}"
+    );
 }
 
 #[test]

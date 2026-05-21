@@ -1,3 +1,5 @@
+#![allow(clippy::useless_vec)]
+
 use pinocchio_wasm::algo::{aba, bias_forces, crba, frame_jacobian, rnea};
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::{Joint, JointType, Link, Model, Workspace};

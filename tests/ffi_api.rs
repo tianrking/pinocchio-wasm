@@ -1,3 +1,5 @@
+#![allow(clippy::useless_vec)]
+
 use pinocchio_wasm::ffi::{
     pino_aba, pino_center_of_mass, pino_crba, pino_energy, pino_model_create, pino_model_free,
     pino_model_nq, pino_rnea, pino_workspace_free, pino_workspace_new,

@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use crate::algo::forward_kinematics;
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::Vec3;

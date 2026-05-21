@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use crate::core::error::{PinocchioError, Result};
 use crate::core::math::{Mat3, Vec3};
 use crate::core::spatial::*;

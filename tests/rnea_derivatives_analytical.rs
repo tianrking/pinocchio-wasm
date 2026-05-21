@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop, clippy::type_complexity)]
+
 use pinocchio_wasm::algo::{crba, rnea_derivatives, rnea_derivatives_fd};
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::{Joint, Link, Model, Workspace};

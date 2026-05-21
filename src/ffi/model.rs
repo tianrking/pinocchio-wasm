@@ -467,10 +467,7 @@ pub extern "C" fn pino_collision_model_create_geometries(
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pino_neutral_configuration(
-    model: *const ModelHandle,
-    q_out: *mut f64,
-) -> i32 {
+pub extern "C" fn pino_neutral_configuration(model: *const ModelHandle, q_out: *mut f64) -> i32 {
     run_status(|| {
         check_non_null(model)?;
         check_non_null(q_out)?;
@@ -545,8 +542,8 @@ pub extern "C" fn pino_difference_configuration(
         let nv = model_ref.nv();
         let q0 = unsafe { as_slice(q0_ptr, nq)? };
         let q1 = unsafe { as_slice(q1_ptr, nq)? };
-        let dv = algo::difference_configuration(model_ref, q0, q1)
-            .map_err(|_| Status::AlgoFailed)?;
+        let dv =
+            algo::difference_configuration(model_ref, q0, q1).map_err(|_| Status::AlgoFailed)?;
         unsafe {
             core::ptr::copy_nonoverlapping(dv.as_ptr(), dv_out, nv);
         }

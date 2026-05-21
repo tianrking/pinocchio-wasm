@@ -1,10 +1,9 @@
 use pinocchio_wasm::algo::{
     ContactPoint, aba_derivatives, build_contact_problem, center_of_mass_derivatives,
-    centroidal_derivatives, centroidal_map, centroidal_momentum,
-    difference_configuration_plain,
+    centroidal_derivatives, centroidal_map, centroidal_momentum, difference_configuration_plain,
     frame_jacobian_derivatives, integrate_configuration, interpolate_configuration_plain,
-    inverse_dynamics_regressor, kinematics_derivatives, random_configuration_plain, rnea_derivatives,
-    solve_contact_admm, solve_contact_cholesky, solve_contact_pgs,
+    inverse_dynamics_regressor, kinematics_derivatives, random_configuration_plain,
+    rnea_derivatives, solve_contact_admm, solve_contact_cholesky, solve_contact_pgs,
 };
 use pinocchio_wasm::core::math::{Mat3, Vec3};
 use pinocchio_wasm::{Joint, Link, Model, Workspace};

@@ -76,6 +76,7 @@ impl Quat {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn mul(self, rhs: Self) -> Self {
         Self {
             w: self.w * rhs.w - self.x * rhs.x - self.y * rhs.y - self.z * rhs.z,
@@ -201,11 +202,7 @@ impl Quat {
         let cos_half = q.w;
         if sin_half < 1e-10 {
             if cos_half > 0.0 {
-                return Vec3::new(
-                    2.0 * q.x,
-                    2.0 * q.y,
-                    2.0 * q.z,
-                );
+                return Vec3::new(2.0 * q.x, 2.0 * q.y, 2.0 * q.z);
             }
             let v = Vec3::new(q.x, q.y, q.z);
             let n = v.norm();
