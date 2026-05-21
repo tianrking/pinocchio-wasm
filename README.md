@@ -119,6 +119,34 @@ node examples/js/node_demo.mjs
 
 All algorithm APIs are pointer + length driven and return status code (`0` means success).
 
+## JavaScript Usage and Verification
+
+See [`docs/JS_USAGE_AND_VERIFICATION.md`](docs/JS_USAGE_AND_VERIFICATION.md) for:
+
+- local verification commands and expected results
+- Node.js and browser usage examples
+- high-frequency browser FK pattern using preallocated WASM buffers
+- model creation formats and dimension rules
+- JS API shapes for dynamics, kinematics, batch, contact, collision, centroidal, derivatives, and configuration-space operations
+
+See [`docs/JS_API_REFERENCE.md`](docs/JS_API_REFERENCE.md) for a function-by-function JavaScript SDK reference.
+
+Browser FK demo:
+
+```bash
+cargo build --release --target wasm32-unknown-unknown
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/examples/js/browser_kinematics_demo.html`.
+For URDF import + FK, open `http://localhost:8000/examples/js/browser_urdf_kinematics.html`
+or run:
+
+```bash
+node examples/js/urdf_kinematics_demo.mjs
+node examples/js/urdf_high_frequency_fk.mjs
+```
+
 ## Roadmap
 
 - URDF/SDF/MJCF parser bridge (WASM-friendly schema precompile)

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pinocchio-wasm URDF Kinematics</title>
+    <style>
+      body {
+        margin: 0;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #f6f7f9;
+        color: #172033;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: #5f6b7a;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(360px, 0.7fr);
+        gap: 18px;
+        margin-top: 22px;
+      }
+
+      .panel {
+        border: 1px solid #d8dde8;
+        border-radius: 8px;
+        background: white;
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        display: block;
+      }
+
+      textarea {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 360px;
+        resize: vertical;
+        border: 1px solid #d8dde8;
+        border-radius: 6px;
+        padding: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      button {
+        border: 0;
+        border-radius: 6px;
+        background: #176b87;
+        color: white;
+        font-weight: 650;
+        padding: 10px 12px;
+        cursor: pointer;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .joints {
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+        color: #30384c;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      pre {
+        margin: 14px 0 0;
+        border-radius: 6px;
+        background: #101828;
+        color: #dbe7ff;
+        overflow: auto;
+        padding: 12px;
+        font-size: 12px;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          padding: 18px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>URDF Kinematics in Browser</h1>
+      <p>Load URDF text, create a WASM model, and compute forward kinematics interactively.</p>
+
+      <section class="grid">
+        <div class="panel">
+          <canvas id="canvas" width="900" height="675"></canvas>
+          <div class="panel-body">
+            <div class="row">
+              <strong id="status">Loading</strong>
+              <span id="dims">-</span>
+            </div>
+            <div id="joints" class="joints"></div>
+            <pre id="output"></pre>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-body">
+            <textarea id="urdf"></textarea>
+            <div class="row">
+              <button id="load" type="button">Load URDF and solve FK</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./browser_urdf_kinematics.mjs"></script>
+  </body>
+</html>
